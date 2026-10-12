@@ -167,8 +167,18 @@ export type FoodMode = 'dev' | 'production';
 export const FOOD_MODE_CONFIGURED: FoodMode =
   process.env.EXPO_PUBLIC_FOOD_MODE === 'dev' ? 'dev' : 'production';
 
-/** The build-time answer. Most code should read `useFoodMode()` instead. */
-export const FOOD_MODE: FoodMode = IS_PRODUCTION_BUILD ? 'production' : FOOD_MODE_CONFIGURED;
+/**
+ * The build-time answer. Most code should read `useFoodMode()` instead.
+ *
+ * The variable decides in EVERY build, production included. It used to be
+ * overridden to `production` whenever `APP_ENV` was production, which made the
+ * live module unreachable from the store build however it was configured —
+ * the Food tab opened "coming soon" for every customer. The safe default is
+ * still the fallback above: a build with the variable unset or misspelt gets
+ * "coming soon". `eas.json` sets it per profile, because `.env` is git-ignored
+ * and never reaches an EAS builder.
+ */
+export const FOOD_MODE: FoodMode = FOOD_MODE_CONFIGURED;
 
 /* ------------------------------------------------------------------ *
  * What is set, for a dev banner or a bug report

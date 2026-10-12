@@ -1,5 +1,7 @@
 import { createContext, useContext } from 'react';
 
+import { useAmbientPaused } from '@/context/AmbientMotionContext';
+
 /**
  * Whether the food module is mounted but OFF screen.
  *
@@ -10,11 +12,17 @@ import { createContext, useContext } from 'react';
  * reads this and stops while it is true, and starts again when it is not, so a
  * hidden module costs no frames and no battery.
  *
+ * Also true while another screen covers Home (a dish, the cart, an order):
+ * the module is on its tab but nobody can see it, and its loops would slow the
+ * screen that is showing. See `AmbientMotionContext`.
+ *
  * Defaults to `false`: the same banner rendered anywhere else (the stay side's
  * `FoodWaitPromo`) is never paused by it.
  */
 export const FoodPausedContext = createContext(false);
 
 export function useFoodPaused(): boolean {
-  return useContext(FoodPausedContext);
+  const hidden = useContext(FoodPausedContext);
+  const covered = useAmbientPaused();
+  return hidden || covered;
 }

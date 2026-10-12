@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "main": "expo-router/entry",
+  "reanimated": {
+    "staticFeatureFlags": {
+      "ANDROID_SYNCHRONOUSLY_UPDATE_UI_PROPS": true
+    }
+  },
   "scripts": {
     "start": "expo start",
     "ios": "expo run:ios",

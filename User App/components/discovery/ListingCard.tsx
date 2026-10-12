@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { memo, useState } from 'react';
 import {
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,11 +16,13 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { Icon, Skeleton, Text } from '@/components/ui';
 import { usePressAnimation } from '@/hooks/usePressAnimation';
 import { useTheme } from '@/context/ThemeContext';
+import { sizedImage } from '@/utils/image';
 import { formatRupees } from '@/utils/money';
 import { availabilityLabel, isGone, isScarce, type Availability, type Listing } from '@/types/listing';
 import { recordListingClick } from '@/services/api/listings.api';
@@ -147,6 +148,15 @@ function PhotoCarousel({
   onToggleSave?: () => void;
 }) {
   const [index, setIndex] = useState(0);
+  /*
+   * Only the first photo is fetched until somebody swipes.
+   *
+   * Every card used to load all of its photos at once, and the feed mounts
+   * every card — so the PG feed alone asked for ~200 photos on open, for a
+   * row of cards most people never swipe. The rest arrive on the first drag,
+   * which is long before the next page slides into view.
+   */
+  const [revealed, setRevealed] = useState(false);
 
   const photos = listing.photoUris?.length
     ? listing.photoUris
@@ -176,12 +186,19 @@ function PhotoCarousel({
 
   const page = (pageIndex: number) => {
     const [from, to] = PLACEHOLDERS[pageIndex % PLACEHOLDERS.length];
-    const uri = photos[pageIndex];
+    const uri = pageIndex === 0 || revealed ? sizedImage(photos[pageIndex], width, height) : undefined;
 
     const photo = (
       <>
         {uri ? (
-          <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          <Image
+            source={{ uri }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={uri}
+            transition={120}
+          />
         ) : (
           <View style={[StyleSheet.absoluteFill, { backgroundColor: to, opacity: 0.55 }]} />
         )}
@@ -214,6 +231,7 @@ function PhotoCarousel({
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={handleScroll}
+          onScrollBeginDrag={revealed ? undefined : () => setRevealed(true)}
           directionalLockEnabled
         >
           {Array.from({ length: pages }, (_, pageIndex) => page(pageIndex))}
@@ -418,15 +436,19 @@ export type ListingCardProps = {
   genderMatches?: boolean;
   style?: ViewStyle;
   index?: number;
+  /** Overrides `listing.saved`, so a feed can pass the listing it already
+   *  holds rather than a fresh copy per render (which defeats `memo`). */
+  saved?: boolean;
 };
 
-export function ListingCard({
+export const ListingCard = memo(function ListingCard({
   listing,
   variant = 'carousel',
   onPress,
   onToggleSave,
   style,
   index = 0,
+  saved,
 }: ListingCardProps) {
   const { colors, mode } = useTheme();
   const { animatedStyle, onPressIn, onPressOut } = usePressAnimation('card');
@@ -471,7 +493,7 @@ export function ListingCard({
       }
     >
       <PhotoCarousel
-        listing={listing}
+        listing={saved === undefined ? listing : { ...listing, saved }}
         width={variant === 'carousel' ? GEOMETRY.carousel.width : listWidth}
         height={variant === 'carousel' ? GEOMETRY.carousel.photoHeight : GEOMETRY.list.photoHeight}
         swipeable
@@ -486,8 +508,10 @@ export function ListingCard({
 
   return (
     <Animated.View
+      /* The first few only: the feed is virtualised now, and a card that
+         mounts as it scrolls into view should simply be there. */
       entering={
-        variant === 'list'
+        variant === 'list' && index < 6
           ? FadeInDown.delay(Math.min(index, 6) * 45).duration(260).springify()
           : undefined
       }
@@ -504,7 +528,7 @@ export function ListingCard({
       </Animated.View>
     </Animated.View>
   );
-}
+});
 
 /**
  * Drawn on the same surface and border as the real card in both modes, so the

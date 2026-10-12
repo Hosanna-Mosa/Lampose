@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
+import { Image } from 'expo-image';
 import {
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +12,7 @@ import {
 
 import { Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
+import { sizedImage } from '@/utils/image';
 
 /**
  * The listing detail's hero, as a swipeable set of photographs.
@@ -73,7 +74,12 @@ export function HeroCarousel({ photos, height, onPressPhoto }: HeroCarouselProps
       <View style={{ width, height, backgroundColor: colors.surfaceSunken }}>
         {photos[0] ? (
           <Pressable onPress={() => onPressPhoto?.(0)} style={StyleSheet.absoluteFill}>
-            <Image source={{ uri: photos[0] }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+            <Image
+              source={{ uri: sizedImage(photos[0], width, height) }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+            />
           </Pressable>
         ) : null}
       </View>
@@ -102,7 +108,18 @@ export function HeroCarousel({ photos, height, onPressPhoto }: HeroCarouselProps
             accessibilityLabel={`Photo ${page + 1} of ${photos.length}. Opens the gallery.`}
             style={{ width, height, backgroundColor: colors.surfaceSunken }}
           >
-            <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+            {/* Only the pages next to the one in view are fetched; a
+                listing with twelve photos used to decode all twelve, full
+                size, before the detail screen could finish opening. */}
+            {Math.abs(page - index) <= 1 ? (
+              <Image
+                source={{ uri: sizedImage(uri, width, height) }}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                recyclingKey={uri}
+              />
+            ) : null}
           </Pressable>
         ))}
       </ScrollView>

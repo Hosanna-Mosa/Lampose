@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { Image } from 'expo-image';
 import {
-  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
+import { sizedImage } from '@/utils/image';
 
 /**
  * The full-screen gallery.
@@ -146,7 +147,13 @@ export function PhotoGallery({
                      cropped photograph is the wrong trade at that moment —
                      letterboxing costs nothing here, where the ground is
                      already dark. */
-                  <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="contain" />
+                  <Image
+                    source={{ uri: sizedImage(uri, width) }}
+                    style={StyleSheet.absoluteFill}
+                    contentFit="contain"
+                    cachePolicy="memory-disk"
+                    recyclingKey={uri}
+                  />
                 ) : (
                   <>
                     <View style={[StyleSheet.absoluteFill, { backgroundColor: to, opacity: 0.5 }]} />

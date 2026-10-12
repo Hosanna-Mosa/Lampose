@@ -1,4 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { InteractionManager } from 'react-native';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type { StayCategory } from '@/constants/tokens';
 import type { Locality } from '@/types/auth';
@@ -92,6 +94,45 @@ export function useListings(options: UseListingsOptions = {}) {
     radiusKm: query.data?.radiusKm,
     error: query.error as ApiError | null,
   };
+}
+
+/**
+ * The feeds for the OTHER category tabs, fetched in the background once the
+ * one on screen has arrived.
+ *
+ * Switching Bachelor → PG used to start a cold request on the tap, so the tab
+ * changed, the skeleton showed, and the feed arrived a round trip later. With
+ * these warmed in the identical query key `useListings` would build, the tap
+ * paints from cache. `prefetchQuery` honours `staleTime`, so a feed already
+ * fresh is not asked for again; it waits for interactions so it never competes
+ * with the frame that is drawing the current feed.
+ */
+export function usePrefetchListings(
+  categories: readonly StayCategory[],
+  scope: Omit<UseListingsOptions, 'category' | 'enabled'>,
+  enabled: boolean,
+) {
+  const client = useQueryClient();
+  const { city = null, locality = null, maxPrice = null, search = null, near = null } = scope;
+  const nearKey = near ? `${near.lat},${near.lng},${near.radiusKm}` : '';
+  const categoriesKey = categories.join(',');
+
+  useEffect(() => {
+    if (!enabled || !categories.length) return undefined;
+    const task = InteractionManager.runAfterInteractions(() => {
+      for (const category of categories) {
+        void client.prefetchQuery({
+          queryKey: queryKeys.listingList({ category, city, locality, maxPrice, search, near }),
+          queryFn: ({ signal }) => fetchListings({ category, city, locality, maxPrice, search, near, signal }),
+          staleTime: STALE_MS,
+          retry,
+        });
+      }
+    });
+    return () => task.cancel();
+    // `near` is read through `nearKey`; the array through `categoriesKey`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, client, categoriesKey, city, locality, maxPrice, search, nearKey]);
 }
 
 /** One listing. Enabled only once there is an id to ask about. */
