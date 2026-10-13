@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, type ViewStyle } from 'react-native';
 import Animated, {
   cancelAnimation,
@@ -97,6 +97,9 @@ const SIZES = {
   xs: { height: 30, paddingHorizontal: 12, borderWidth: 1 },
 } as const;
 
+/** A second press of the same button sooner than this is the same tap. */
+const REPRESS_GUARD_MS = 600;
+
 export function Button({
   label,
   onPress,
@@ -118,6 +121,26 @@ export function Button({
     fullWidth ? 'buttonFullWidth' : 'button',
   );
   const [focused, setFocused] = useState(false);
+
+  /*
+   * One press per double tap.
+   *
+   * Screens disable their button while a request runs (`loading`), but that
+   * lands a render after the tap — and a double tap faster than a frame got
+   * both presses through: two support tickets, two replies, two of whatever
+   * the button sends. A second press inside this window is dropped here, for
+   * every button at once. Steppers and quantity controls are `Pressable`s,
+   * not this, so nothing that is meant to be tapped quickly is slowed.
+   */
+  const lastPress = useRef(0);
+  const handlePress = onPress
+    ? () => {
+      const now = Date.now();
+      if (now - lastPress.current < REPRESS_GUARD_MS) return;
+      lastPress.current = now;
+      onPress();
+    }
+    : undefined;
 
   const inert = disabled || loading;
   const metrics = SIZES[size];
@@ -222,7 +245,7 @@ export function Button({
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       onPressIn={onPressIn}
       onPressOut={onPressOut}
       onFocus={() => setFocused(true)}

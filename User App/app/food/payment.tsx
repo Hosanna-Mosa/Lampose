@@ -83,6 +83,12 @@ export default function PaymentScreen() {
   const [state, setState] = useState<'idle' | 'paying' | 'failed'>('idle');
   const [error, setError] = useState<string | null>(null);
 
+  /* One order per tap. `state` updates a render later, so a double tap could
+     reach `placeOrder` twice before the button disabled; a ref cannot.
+     Above the empty-cart return: placing an order empties the cart while this
+     screen is still mounted, and a hook below that return is then skipped —
+     React throws "Rendered fewer hooks than expected" on the way out. */
+  const paying = useRef(false);
 
   if (!kitchen || count === 0) {
     return (
@@ -161,10 +167,6 @@ export default function PaymentScreen() {
    * 11pm, the order under the minimum — and paraphrasing them into "something
    * went wrong" throws away the one sentence that tells a student what to do.
    */
-  /* One order per tap. `state` updates a render later, so a double tap could
-     reach `placeOrder` twice before the button disabled; a ref cannot. */
-  const paying = useRef(false);
-
   const pay = async () => {
     if (paying.current) return;
     paying.current = true;

@@ -633,7 +633,11 @@ export type HeroScene3DProps = {
   style?: ViewStyle;
 };
 
-export function HeroScene3D({ category, width, style }: HeroScene3DProps) {
+/*
+ * Memoised: the scene is a few hundred SVG nodes, and Home re-renders on a
+ * keystroke, a chip and the hero docking — none of which change the street.
+ */
+export const HeroScene3D = React.memo(function HeroScene3D({ category, width, style }: HeroScene3DProps) {
   const { colors, mode } = useTheme();
   const still = useReduceMotion();
   const paused = useAmbientPaused();
@@ -780,7 +784,7 @@ export function HeroScene3D({ category, width, style }: HeroScene3DProps) {
       <Sparkle style={{ top: 70, right: 150 }} phase={sparkB} size={9} still={still} />
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   abs: { position: 'absolute' },

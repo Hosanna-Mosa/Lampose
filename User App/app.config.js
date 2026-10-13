@@ -66,7 +66,7 @@ export default {
   expo: {
     name: 'Lampose',
     slug: 'lampose',
-    version: '1.0.6',
+    version: '1.0.7',
     orientation: 'portrait',
     icon: './assets/images/app-icon.png',
     scheme: 'lampose',
@@ -106,8 +106,9 @@ export default {
       package: 'com.lampose.users.com',
       /* Play Store identity. `versionCode` is the integer Google Play orders
          releases by: it must rise on every upload and is never reused. 2 was
-         published as 1.0.1, 4 was built as 1.0.2, 6 as 1.0.4 and 7 as 1.0.5, so
-         this release (1.0.6 — Food live, faster app) is 8.
+         published as 1.0.1, 4 was built as 1.0.2, 6 as 1.0.4, 7 as 1.0.5 and 8
+         as 1.0.6, so this release (1.0.7 — smoother category bar, paged
+         Explore feed) is 9.
 
          A local `gradlew bundleRelease` reads `android/app/build.gradle`, not
          this file — the two are bumped together.
@@ -116,7 +117,7 @@ export default {
          own server the source of truth and ignores the number below. Set that
          to "local" (and drop `autoIncrement`) for this value to be the one
          that ships. */
-      versionCode: 8,
+      versionCode: 9,
       ...(googleServicesFile ? { googleServicesFile } : {}),
       adaptiveIcon: {
         foregroundImage: adaptiveIcon || './assets/images/app-icon.png',

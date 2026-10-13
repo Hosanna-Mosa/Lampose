@@ -75,8 +75,8 @@ import { useReduceMotion, useTheme, type ThemePreference } from '@/context/Theme
 import type { StayCategory } from '@/constants/tokens';
 import { fromRealBooking, segmentOf, type BookingSegment } from '@/data/bookings';
 import {
-  useAddresses, useBookings, useListingMeta, useListings, useMyCoupon, useNotifications,
-  usePrefetchListings, useSaved,
+  FEED_PAGE_SIZE, useAddresses, useBookings, useListingFeed, useListingMeta, useMyCoupon,
+  useNotifications, usePrefetchListings, useSaved,
 } from '@/services';
 import { BACKEND_CATEGORIES } from '@/services/adapters/listing.adapter';
 import { recordListingClick } from '@/services/api/listings.api';
@@ -372,8 +372,21 @@ export default function Home() {
     isFetching: savedFetching,
   } = useSaved(status === 'signedIn');
 
+  /*
+   * Whether this screen filters or sorts on the device.
+   *
+   * Gender, sharing, amenities, furnishing, meals and the two price sorts are
+   * applied here, by `applyQuery`, over whatever the server sent. Over ten
+   * listings of forty that is wrong — "nothing matches" when page three would
+   * have, a "lowest price" that is only the lowest of the first ten — so with
+   * any of them on, the feed asks for everything in one response, as it did
+   * before paging. With none on, which is how most people browse, it pages.
+   */
+  const filtersOnDevice = activeFilterCount(query) > 0 || query.sort !== 'recommended';
+  const feedPageSize = filtersOnDevice ? null : FEED_PAGE_SIZE;
+
   /**
-   * The feed, from the database.
+   * The feed, from the database, ten at a time.
    *
    * The category and the city go over the wire, because the collection has a
    * column for each — a phone downloads the rows for one tab in one city
@@ -383,11 +396,14 @@ export default function Home() {
    */
   const {
     listings,
+    count: feedCount,
     isPending: feedLoading,
     error: feedError,
     refetch: refetchFeed,
     isFetching: feedFetching,
-  } = useListings({
+    isFetchingNextPage: feedFetchingMore,
+    fetchMore: fetchMoreFeed,
+  } = useListingFeed({
     category,
     /* A radius search scopes by distance, not by city or area — sending
        either alongside `near` would ask the server to match a `locality`
@@ -402,6 +418,7 @@ export default function Home() {
         : (wholeCity ? null : locality?.name ?? null),
     search: debouncedSearch || null,
     near: nearbySearch,
+    pageSize: feedPageSize,
     enabled: Boolean(category),
   });
 
@@ -418,7 +435,7 @@ export default function Home() {
    * paints from cache rather than spinning — and it is the identical query
    * key the widened feed will use, so it is one request, not two.
    */
-  const { listings: cityListings } = useListings({
+  const { listings: cityListings, count: cityCount } = useListingFeed({
     category,
     city: scopedCity,
     /* The same search as the narrow feed. Without it, a search for one
@@ -429,6 +446,9 @@ export default function Home() {
        to widen to in the first place on a radius search — "see the whole
        city" is a question about a named area, and a radius search never
        asked one. */
+    /* Paged exactly like the feed, so it is the same key the widened feed
+       reads — and only the first page's `count` is needed for the offer. */
+    pageSize: feedPageSize,
     enabled: Boolean(category) && Boolean(locality) && !everywhere && !wholeCity && !nearbySearch,
   });
 
@@ -471,7 +491,9 @@ export default function Home() {
     [listings, query],
   );
 
-  const total = shown.length;
+  /* Paged, the server's total — the screen holds only the pages scrolled to.
+     Filtered on the device, what survived the filters. */
+  const total = filtersOnDevice ? shown.length : Math.max(feedCount, shown.length);
 
   /* Warm the other category tabs once this one has arrived — same scope,
      same query keys — so switching tabs paints from cache instead of waiting
@@ -510,8 +532,8 @@ export default function Home() {
    * offering it.
    */
   const cityTotal = useMemo(
-    () => applyQuery(cityListings, query).length,
-    [cityListings, query],
+    () => (filtersOnDevice ? applyQuery(cityListings, query).length : cityCount),
+    [filtersOnDevice, cityListings, cityCount, query],
   );
 
   /* Only worth offering when it would actually show more — and never when the
@@ -1144,9 +1166,20 @@ export default function Home() {
             showsVerticalScrollIndicator={false}
             onScroll={handleScroll}
             scrollEventThrottle={16}
+            /* The next ten, asked for while the last few are still on their
+               way up the screen, so scrolling rarely meets the spinner. */
+            onEndReached={fetchMoreFeed}
+            onEndReachedThreshold={0.8}
+            ListFooterComponent={
+              feedFetchingMore ? (
+                <View style={{ paddingVertical: space[4] }}>
+                  <ActivityIndicator color={colors.brand} />
+                </View>
+              ) : null
+            }
             refreshControl={
               <RefreshControl
-                refreshing={feedFetching && !feedLoading}
+                refreshing={feedFetching && !feedLoading && !feedFetchingMore}
                 onRefresh={() => refetchFeed()}
                 tintColor={colors.brand}
               />
