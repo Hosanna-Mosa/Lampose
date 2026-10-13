@@ -129,8 +129,21 @@ export default function PaymentCheckout() {
         `/payment/checkout?redirect=${encodeURIComponent(PAYMENT_RETURN_URL)}`
       : null;
 
+  /*
+   * `leave` through a ref, NOT as a dependency of the effect below.
+   *
+   * `leave` is rebuilt whenever `refreshOrder` is, which follows the food
+   * catalogue — and the catalogue refetches when the app regains focus, which
+   * is exactly what coming back from the browser is. As a dependency, that
+   * re-ran the effect and opened the gateway a SECOND time over the order the
+   * student had just paid for. The browser opens on arrival and on "Try
+   * again", and on nothing else.
+   */
+  const leaveRef = useRef(leave);
+  leaveRef.current = leave;
+
   useEffect(() => {
-    if (!url) return;
+    if (!url || done.current) return;
     let cancelled = false;
 
     (async () => {
@@ -139,7 +152,7 @@ export default function PaymentCheckout() {
            when the student closes the browser (cancel/dismiss). Either way the
            server is the one that knows whether it was paid. */
         await WebBrowser.openAuthSessionAsync(url, PAYMENT_RETURN_URL);
-        if (!cancelled) void leave();
+        if (!cancelled) void leaveRef.current();
       } catch {
         /* No browser could be opened at all. Nothing has been charged. */
         if (!cancelled) setFailed(true);
@@ -149,7 +162,7 @@ export default function PaymentCheckout() {
     return () => {
       cancelled = true;
     };
-  }, [url, attempt, leave]);
+  }, [url, attempt]);
 
   /* Not "your visit" for a stay request: a hotel pays for the STAY here, and
      this screen cannot tell the two apart from its params. */

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useEffect, useMemo } from 'react';
+import React, { useDeferredValue, useEffect, useMemo } from 'react';
 import { Platform, Pressable, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import Animated, {
   cancelAnimation,
@@ -93,6 +93,14 @@ export function StayHeroSection({
     city && city.trim().length > 0 ? `${locality}, ${city}` : locality || 'All locations';
 
   const glass = glassStyle(dark);
+  /* Stable, so the memoised street scene skips the screen's re-renders. */
+  const sceneStyle = useMemo<ViewStyle>(
+    () => ({ position: 'absolute', left: -layout.gutter, bottom: -6 }),
+    [layout.gutter],
+  );
+  /* The street rebuilds its building and visitors for a new category; deferred
+     so that rebuild never holds up the category bar or the feed. */
+  const sceneCategory = useDeferredValue(category ?? 'PG_HOSTEL');
 
   return (
     <View style={[styles.container, style]}>
@@ -211,11 +219,7 @@ export function StayHeroSection({
             building on the right and a road across the whole hero. The scene
             sits behind the type, edge to edge, and takes no touches. */}
         <View style={[styles.headline, styles.stage]}>
-          <HeroScene3D
-            category={category ?? 'PG_HOSTEL'}
-            width={screenWidth}
-            style={{ position: 'absolute', left: -layout.gutter, bottom: -6 }}
-          />
+          <HeroScene3D category={sceneCategory} width={screenWidth} style={sceneStyle} />
           <Text variant="caption" color="secondary">
             {firstName ? `${greeting}, ${firstName}` : greeting}
           </Text>

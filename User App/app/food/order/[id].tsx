@@ -454,14 +454,17 @@ export default function OrderScreen() {
               : 'This order has finished.';
 
   const bill: BillLine[] = [
-    ...order.lines.map((line) => ({
-      id: line.name,
+    /* Keyed by position, not name: the same dish twice with different add-ons
+       or spice is two lines with one name, and duplicate keys drop rows. */
+    ...order.lines.map((line, index) => ({
+      id: `${index}-${line.name}`,
       label: line.qty > 1 ? `${line.name} ×${line.qty}` : line.name,
       amount: line.price,
     })),
     ...order.lines
-      .filter((line) => line.note)
-      .map((line) => ({ id: `${line.name}-note`, label: line.note as string, amount: 0, amountLabel: 'included', sub: true })),
+      .map((line, index) => ({ line, index }))
+      .filter(({ line }) => line.note)
+      .map(({ line, index }) => ({ id: `${index}-${line.name}-note`, label: line.note as string, amount: 0, amountLabel: 'included', sub: true })),
     /* Every fee as STORED on the order rather than recomputed — a rate that
        changes must not rewrite what an old receipt says — in the same order
        the cart printed them. Each is a term in the server's `grandTotal`,
@@ -912,7 +915,7 @@ export default function OrderScreen() {
         >
           {order.lines.map((line, index) => (
             <View
-              key={line.name}
+              key={`${index}-${line.name}`}
               style={[
                 styles.line,
                 {

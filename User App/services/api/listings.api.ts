@@ -59,6 +59,12 @@ export type ListingQuery = {
    * requires them as a group rather than three independent optionals.
    */
   near?: { lat: number; lng: number; radiusKm: number } | null;
+  /**
+   * One page instead of the whole feed: at most `limit` listings, starting
+   * `offset` in. Omitted, the server sends everything, as it always has.
+   */
+  limit?: number | null;
+  offset?: number;
   signal?: AbortSignal;
 };
 
@@ -68,6 +74,8 @@ export type ListingsResult = {
   count: number;
   /** Echoed back only on a radius search — the radius the server actually applied. */
   radiusKm?: number;
+  /** More after this page. Always false for an unpaged request. */
+  hasMore: boolean;
 };
 
 /**
@@ -81,7 +89,7 @@ const STAY_CATEGORY_PARAM = Object.values(BACKEND_CATEGORIES).flat().join(',');
 
 export async function fetchListings(query: ListingQuery = {}): Promise<ListingsResult> {
   const {
-    category, city, locality, maxPrice, search, near, signal,
+    category, city, locality, maxPrice, search, near, limit, offset, signal,
   } = query;
 
   /*
@@ -121,6 +129,8 @@ export async function fetchListings(query: ListingQuery = {}): Promise<ListingsR
       lat: near?.lat ?? undefined,
       lng: near?.lng ?? undefined,
       radiusKm: near?.radiusKm ?? undefined,
+      limit: limit ?? undefined,
+      offset: limit ? offset ?? 0 : undefined,
     },
     signal,
   });
@@ -131,6 +141,7 @@ export async function fetchListings(query: ListingQuery = {}): Promise<ListingsR
     listings: toListings(Array.isArray(data) ? data : []),
     count: envelope.count ?? (Array.isArray(data) ? data.length : 0),
     radiusKm: envelope.radiusKm,
+    hasMore: envelope.hasMore === true,
   };
 }
 

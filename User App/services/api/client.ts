@@ -412,6 +412,8 @@ export type ApiEnvelope<T> = {
   count?: number;
   /** Present on the listings feed, only when it was a radius search. */
   radiusKm?: number;
+  /** Present on the listings feed, only when a page (`limit`) was asked for. */
+  hasMore?: boolean;
   message?: string;
   code?: string;
 };

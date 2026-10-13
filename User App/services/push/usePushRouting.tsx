@@ -127,6 +127,15 @@ export function usePushRouting() {
         return;
       }
 
+      /* A kind this build does not know — one the server added after it
+         shipped — carries no request to open. The confirm screen with two
+         empty ids draws "not found"; the alerts list shows the notification
+         itself. */
+      if (!payload.listingId && !payload.requestId) {
+        router.push('/notifications' as never);
+        return;
+      }
+
       router.push({
         pathname: '/confirm/[id]',
         params: { id: payload.listingId ?? '', requestId: payload.requestId ?? '' },

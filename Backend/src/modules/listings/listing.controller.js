@@ -238,6 +238,27 @@ const isPropertyPaused = (doc, shareRows) => ownerPaused(
   }),
 );
 
+/** The most a single page of the feed may hold. */
+const MAX_PAGE_SIZE = 50;
+
+/** A non-negative whole number from the query string, clamped; null if absent or unreadable. */
+const parsePageNumber = (raw, { min, max }) => {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const value = Number.parseInt(String(raw), 10);
+  if (!Number.isFinite(value)) return null;
+  return Math.min(Math.max(value, min), max);
+};
+
+/**
+ * Every counted bed taken — the app's "FILLED" card. Mirrors
+ * `listing.adapter.ts#availability` in the User App: only options with a
+ * number count, and a listing with no numbers at all is unstated, not full.
+ */
+const isFilled = (listing) => {
+  const counted = (listing.sharingOptions || []).filter((option) => typeof option.availableBeds === 'number');
+  return counted.length > 0 && counted.reduce((sum, option) => sum + option.availableBeds, 0) <= 0;
+};
+
 const getListings = async (req, res, next) => {
   try {
     const {
@@ -449,10 +470,43 @@ const getListings = async (req, res, next) => {
       return (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity);
     });
 
+    /*
+     * One page of it, when a page is asked for.
+     *
+     * Opt-in: without `limit` the response is the whole feed, exactly as
+     * before, which lampose.com and the app's results screen still read. The
+     * app's Explore feed asks for ten at a time so a category tab paints off
+     * a small response and the rest arrives as the student scrolls.
+     *
+     * Sliced AFTER every filter and the ranking above, because city, area and
+     * the owner's pause are all decided in this function rather than in the
+     * Mongo query — paging the query would page the wrong set. `count` stays
+     * the total, so the app can still say how many there are.
+     */
+    const limit = parsePageNumber(req.query.limit, { min: 1, max: MAX_PAGE_SIZE });
+    if (limit === null) {
+      return res.json({
+        success: true,
+        count: ranked.length,
+        data: ranked,
+        ...(nearby.point ? { radiusKm: nearby.radiusKm } : {}),
+      });
+    }
+    const offset = parsePageNumber(req.query.offset, { min: 0, max: Number.MAX_SAFE_INTEGER }) ?? 0;
+    /* A full place sorts after every place with a bed, the same rule the app
+       applies on screen (`availableFirst`). Applied here when paging, because
+       the app can only reorder the pages it has, and a free place on page
+       three belongs above a full one on page one. `.sort` is stable. */
+    const paged = [...ranked].sort((a, b) => Number(isFilled(a)) - Number(isFilled(b)));
+    const page = paged.slice(offset, offset + limit);
+
     return res.json({
       success: true,
-      count: ranked.length,
-      data: ranked,
+      count: paged.length,
+      data: page,
+      offset,
+      limit,
+      hasMore: offset + page.length < paged.length,
       ...(nearby.point ? { radiusKm: nearby.radiusKm } : {}),
     });
   } catch (error) {

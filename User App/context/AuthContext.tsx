@@ -552,15 +552,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /* A status ref, so the callback stays stable for the provider that calls it. */
   const statusRef = useRef(status);
   statusRef.current = status;
+  /* Pending save of the category, so a run of taps along the category row is
+     one request with the last choice rather than a request per tap. */
+  const categorySaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (categorySaveTimer.current) clearTimeout(categorySaveTimer.current);
+  }, []);
   const syncCategory = useCallback((category: string) => {
     categoryRef.current = category;
     /* Already signed in — save it now. It only ever went to the server at the
        NEXT sign-in, and first-run order is sign-in THEN category, so a new
        account was created with `category: null` and kept it. Best effort: a
        failure leaves the ref to be sent at the next sign-in, as before. */
-    if (statusRef.current === 'signedIn') {
-      updateMe({ category }).catch(() => {});
-    }
+    if (categorySaveTimer.current) clearTimeout(categorySaveTimer.current);
+    categorySaveTimer.current = setTimeout(() => {
+      categorySaveTimer.current = null;
+      if (statusRef.current !== 'signedIn' || !categoryRef.current) return;
+      updateMe({ category: categoryRef.current }).catch(() => {});
+    }, 1200);
   }, []);
 
   const verifyCode = useCallback(

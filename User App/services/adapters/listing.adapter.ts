@@ -459,7 +459,9 @@ export function toListing(doc: BackendListing): Listing {
   return {
     id: doc.id,
     category,
-    name: doc.name,
+    /* Required by the schema, but every card calls `.toUpperCase()` on it, so
+       one row written around that rule would take the whole feed down. */
+    name: doc.name || 'Unnamed place',
     locality: doc.locality || doc.city || doc.place,
     /* The city, where it is not already the locality. A card reading
        "HSR Layout Sector 1" tells a student nothing about which city they

@@ -184,7 +184,7 @@ export {
 
 export { queryKeys } from './hooks/keys';
 export {
-  useListing, useListingMeta, useListingReviews, useListings, usePrefetchListings, type ListingMeta,
+  useListing, useListingFeed, useListingMeta, useListingReviews, useListings, usePrefetchListings, FEED_PAGE_SIZE, type ListingMeta,
 } from './hooks/useListings';
 export { useStayRequest, isTerminalPhase, type StayPhase } from './hooks/useStayRequest';
 export { useBookings, useBooking } from './hooks/useBookings';

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useEffect, useRef } from 'react';
+import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 import Animated, {
   type SharedValue,
@@ -14,7 +14,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Text } from '@/components/ui';
-import { component, easing } from '@/constants/motion';
+import { easing } from '@/constants/motion';
 import type { StayCategory } from '@/constants/tokens';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 
@@ -51,6 +51,13 @@ const BUBBLE_RADIUS = TRACK_RADIUS - TRACK_PAD;
 const TILE_HEIGHT = 56;
 /** The band of light that sweeps across the bubble when it lands. */
 const SHINE_WIDTH = 26;
+/**
+ * Stiffer than the bottom bar's `component.tabBubble`: this row is tapped in
+ * quick runs while comparing categories, and a spring that takes half a second
+ * to settle reads as lag there. Still a touch under critical damping, so it
+ * keeps its small overshoot.
+ */
+const BUBBLE_SPRING = { damping: 24, stiffness: 420, mass: 0.7 } as const;
 
 export type CategoryGlassBarProps = {
   value: StayCategory;
@@ -92,7 +99,32 @@ export function CategoryGlassBar({
   const dark = mode === 'dark';
 
   const count = categories.length || 1;
-  const index = Math.max(0, categories.indexOf(value));
+
+  /*
+   * The bar's own copy of the choice, written on the tap.
+   *
+   * `value` comes back from the screen, and the screen that owns it is the
+   * whole Explore feed — the street scene, the chip row, every card. Waiting
+   * for that render before moving the bubble was the lag: a tap sat still
+   * until the feed had re-rendered, and rapid taps queued behind each other.
+   * Now the tap moves the bubble on the UI thread and re-renders only this
+   * bar, and the feed follows as a transition (see `choose`) that React may
+   * drop for a newer tap.
+   */
+  const [selected, setSelected] = useState(value);
+  /** The last category tapped here whose feed render has not landed yet. */
+  const pending = useRef<StayCategory | null>(null);
+  useEffect(() => {
+    if (pending.current) {
+      /* An older tap's render landing while a newer tap is on its way would
+         drag the bubble back for a frame; wait for the newest one. */
+      if (value !== pending.current) return;
+      pending.current = null;
+    }
+    setSelected(value);
+  }, [value]);
+
+  const index = Math.max(0, categories.indexOf(selected));
 
   const rowWidth = useSharedValue(0);
   const position = useSharedValue(index);
@@ -100,20 +132,53 @@ export function CategoryGlassBar({
   /** 0 → 1 as the band of light crosses the bubble; parked at 1 (hidden). */
   const shine = useSharedValue(1);
   const placed = useRef(false);
+  /** Where the bubble was last sent, so the render that follows a tap does
+      not start the same move a second time. */
+  const sentTo = useRef(index);
 
+  const moveTo = useCallback(
+    (next: number) => {
+      target.value = next;
+      if (!placed.current || reduceMotion) {
+        /* The first placement is a placement, not a move. */
+        position.value = next;
+        placed.current = true;
+        sentTo.current = next;
+        return;
+      }
+      if (sentTo.current === next) return;
+      sentTo.current = next;
+      position.value = withSpring(next, BUBBLE_SPRING);
+      /* The sweep starts as the bubble arrives, not as it leaves. */
+      shine.value = 0;
+      shine.value = withDelay(90, withTiming(1, { duration: 480, easing: easing.standard }));
+    },
+    [reduceMotion, position, target, shine],
+  );
+
+  /* Every other way the choice changes — the other bar, a restore — gets the
+     same move; after a tap here this is a no-op. */
   useEffect(() => {
-    target.value = index;
-    if (!placed.current || reduceMotion) {
-      /* The first placement is a placement, not a move. */
-      position.value = index;
-      placed.current = true;
-      return;
-    }
-    position.value = withSpring(index, component.tabBubble);
-    /* The sweep starts as the bubble arrives, not as it leaves. */
-    shine.value = 0;
-    shine.value = withDelay(160, withTiming(1, { duration: 620, easing: easing.standard }));
-  }, [index, reduceMotion, position, target, shine]);
+    moveTo(index);
+  }, [index, moveTo]);
+
+  const choose = (category: StayCategory, tileIndex: number) => {
+    if (category === selected) return;
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    /* The bubble now, before any React work. */
+    moveTo(tileIndex);
+    /* Back to the category the feed already shows: no render will come back
+       to clear the wait, so there is nothing to wait for. */
+    pending.current = category === value ? null : category;
+    setSelected(category);
+    /* The feed after, as a transition: interruptible, and a newer tap
+       replaces it rather than waiting behind it. */
+    startTransition(() => {
+      onChange(category);
+    });
+  };
 
   const bubbleStyle = useAnimatedStyle(() => {
     const cell = rowWidth.value / count;
@@ -229,15 +294,10 @@ export function CategoryGlassBar({
             key={category}
             category={category}
             tileIndex={tileIndex}
-            active={category === value}
+            active={category === selected}
             position={position}
             onInk={bubbleInk}
-            onPress={() => {
-              try {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              } catch {}
-              onChange(category);
-            }}
+            onPress={() => choose(category, tileIndex)}
           />
         ))}
       </View>
@@ -271,7 +331,7 @@ function CategoryTile({
   useEffect(() => {
     if (active && !wasActive.current && !reduceMotion) {
       scale.value = withDelay(
-        150,
+        90,
         withSequence(
           withTiming(1.14, { duration: 130, easing: easing.enter }),
           withSpring(1, { damping: 9, stiffness: 260 }),
