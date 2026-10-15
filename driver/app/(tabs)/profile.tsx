@@ -30,7 +30,7 @@ function ProfileStatItem({
   return (
     <View style={styles.statItem}>
       <View style={styles.statIconCircle}>
-        <Icon name={iconName} size={18} color="#059669" />
+        <Icon name={iconName} size={18} color={colors.brand} />
       </View>
       <RNText style={styles.statValueText}>{value}</RNText>
       <RNText style={styles.statLabelText}>{label}</RNText>
@@ -147,10 +147,10 @@ export default function ProfileScreen() {
                 <View
                   style={[
                     styles.rowGlyphCircle,
-                    { backgroundColor: ink ? ink.tint : "#f3f4f6" },
+                    { backgroundColor: ink ? ink.tint : colors.surfaceSunken },
                   ]}
                 >
-                  <Icon name={row.icon} size={18} color={ink ? ink.ink : "#059669"} />
+                  <Icon name={row.icon} size={18} color={ink ? ink.ink : colors.brand} />
                 </View>
 
                 {/* Title */}
@@ -170,7 +170,7 @@ export default function ProfileScreen() {
                     {meta}
                   </RNText>
                 )}
-                <Icon name="chevronRight" size={16} color="#9ca3af" />
+                <Icon name="chevronRight" size={16} color={colors.textTertiary} />
               </Pressable>
             );
           })}
@@ -202,7 +202,7 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#FFFFFF" },
+  root: { flex: 1, backgroundColor: colors.surface },
   content: {
     paddingHorizontal: layout.gutter,
     paddingTop: space[3],
@@ -216,12 +216,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: layout.gutter,
     paddingBottom: space[4],
     borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
+    borderBottomColor: colors.border,
   },
   pageHeaderTitle: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#064e3b",
+    color: colors.textPrimary,
     marginBottom: space[3],
   },
   profileCard: {
@@ -233,11 +233,11 @@ const styles = StyleSheet.create({
   driverNameText: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#064e3b",
+    color: colors.textPrimary,
   },
   driverIdText: {
     fontSize: 13,
-    color: "#6b7280",
+    color: colors.textSecondary,
     marginTop: 1,
   },
   statusChipWrap: {
@@ -251,7 +251,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-around",
     paddingTop: space[2],
     borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
+    borderTopColor: colors.border,
   },
   statItem: {
     alignItems: "center",
@@ -262,33 +262,33 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 4,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.border,
   },
   statValueText: {
     fontSize: 17,
     fontWeight: "800",
-    color: "#064e3b",
+    color: colors.textPrimary,
   },
   statLabelText: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#047857",
+    color: colors.textPrimary,
     marginTop: 2,
   },
 
   /* Seamless Account List */
   listContainer: {
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.surface,
     borderRadius: 20,
     paddingVertical: space[1],
     paddingHorizontal: space[2],
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.border,
     ...elevation.card,
   },
   seamlessRow: {
@@ -301,7 +301,7 @@ const styles = StyleSheet.create({
   },
   rowDivided: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#f3f4f6",
+    borderTopColor: colors.borderSubtle,
   },
   rowGlyphCircle: {
     width: 38,
@@ -314,15 +314,15 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14.5,
     fontWeight: "600",
-    color: "#1f2937",
+    color: colors.textPrimary,
   },
   rowMetaText: {
     fontSize: 12.5,
-    color: "#6b7280",
+    color: colors.textSecondary,
     marginRight: 4,
   },
   pressedRow: {
-    backgroundColor: "#f9fafb",
+    backgroundColor: colors.bg,
   },
 
   logoutBtn: {

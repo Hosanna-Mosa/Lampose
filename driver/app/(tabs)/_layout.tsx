@@ -182,12 +182,12 @@ function GlassBubble({
       pointerEvents="none"
       style={[
         styles.bubble,
-        { backgroundColor: withAlpha(colors.brand, 0.1), borderColor: "rgba(255, 255, 255, 0.95)" },
+        { backgroundColor: withAlpha(colors.brand, 0.1), borderColor: withAlpha(colors.surface, 0.95) },
         style,
       ]}
     >
       <LinearGradient
-        colors={["rgba(255,255,255,0.75)", "rgba(255,255,255,0)"]}
+        colors={[withAlpha(colors.surface, 0.75), withAlpha(colors.surface, 0)]}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 0.7 }}
         style={StyleSheet.absoluteFill}

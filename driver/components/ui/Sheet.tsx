@@ -122,7 +122,7 @@ export function Toast({ message, top }: { message: string | null; top: number })
   const glyph = failed ? "alert" : TOAST_DONE.test(message) ? "check" : "info";
   return (
     <View pointerEvents="none" style={[styles.toast, { top }]}>
-      <Icon name={glyph} size={16} color={failed ? "#fca5a5" : colors.brandOnDark} />
+      <Icon name={glyph} size={16} color={failed ? colors.danger.border : colors.brandOnDark} />
       <Text variant="bodyStrong" color="onGraphite" style={{ flex: 1 }}>
         {message}
       </Text>

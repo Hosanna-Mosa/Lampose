@@ -1,9 +1,25 @@
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
-import { useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
+import {
+  runOnJS,
+  runOnUI,
+  useSharedValue,
+  withSpring,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated';
 
 import { component, easing } from '@/constants/motion';
 import { useReduceMotion } from '@/context/ThemeContext';
+import { createValueStore, type ValueStore } from '@/utils/valueStore';
 
 /**
  * Whether the bottom bar is currently out of the way, and the one gesture that
@@ -42,6 +58,15 @@ export type BottomBarValue = {
   /** Hand this to any vertical scrollable's `onScroll`, with
    *  `scrollEventThrottle={16}` beside it. */
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  /**
+   * The same, as a worklet taking the offset: call it from a
+   * `useAnimatedScrollHandler`, and the bar follows the thumb without the
+   * scroll touching the JS thread at all. `onScroll` is this, hopped across.
+   */
+  onScrollY: (y: number) => void;
+  /** Whether the bar is heading out of the way (true) or back up (false).
+   *  Read it through `useBottomBarAway`. */
+  awayStore: ValueStore<boolean>;
   /** Put the bar back up regardless of the gesture \u2014 for a tab change, where
    *  the next screen's scroll position says nothing about this one's. */
   showBar: () => void;
@@ -67,32 +92,56 @@ const TRAVEL_THRESHOLD = 14;
  */
 const ALWAYS_SHOWN_ABOVE = 64;
 
+/**
+ * How long the bar has to have been on its way out before `useBottomBarAway`
+ * says it is gone — the hide spring's travel, so nothing that pauses on it
+ * freezes while it is still sliding off in plain sight.
+ */
+const AWAY_SETTLE_MS = 450;
+
+/* Read once, out here, so the worklet below carries these few numbers to the
+   UI thread rather than the whole motion-token module. */
+const { reducedDuration: HIDE_REDUCED_MS, ...HIDE_SPRING } = component.bottomBarHide;
+const HIDE_REDUCED_EASING = easing.standard;
+
 export function BottomBarProvider({ children }: { children: React.ReactNode }) {
   const reduceMotion = useReduceMotion();
   const hidden = useSharedValue(0);
   const [height, setHeightState] = useState(0);
+  const [awayStore] = useState(() => createValueStore(false));
 
-  /* Where the last scroll event left us, and how far the finger has carried in
-     the current direction. Refs rather than state: this runs on every scroll
-     frame, and the whole point is that it re-renders nothing. */
-  const lastY = useRef(0);
-  const travel = useRef(0);
+  /*
+   * The gesture's state, on the UI thread.
+   *
+   * Shared values rather than refs, because the Explore feed reads its scroll
+   * on the UI thread (see `onScrollY`) and the decision is made there, beside
+   * the spring it starts — so following the thumb never waits on the JS
+   * thread, however busy a tap has made it.
+   *
+   * `lastY` and `travel`: where the last scroll event left us, and how far the
+   * finger has carried in the current direction.
+   */
+  const lastY = useSharedValue(0);
+  const travel = useSharedValue(0);
   /* Set whenever the screen under the bar changes. One `lastY` is shared by
      every feed, so the first event from a NEW one would otherwise be read as a
      single enormous downward flick — arrive on a list already scrolled to 500
      and the bar would hide itself on the first pixel of movement. The next
      event after this flag is spent adopting the new position and nothing
      else. */
-  const resync = useRef(false);
+  const resync = useSharedValue(false);
   /* The value `hidden` is animating TOWARDS. `hidden.value` cannot answer this
-     \u2014 mid-flight it is some fraction between the two, so comparing against it
+     — mid-flight it is some fraction between the two, so comparing against it
      would restart the animation on every frame. */
-  const target = useRef(0);
+  const target = useSharedValue(0);
+
+  const reportAway = useCallback((away: boolean) => awayStore.set(away), [awayStore]);
 
   const setHidden = useCallback(
     (next: 0 | 1) => {
-      if (target.current === next) return;
-      target.current = next;
+      'worklet';
+      if (target.value === next) return;
+      target.value = next;
 
       /*
        * A spring, and the same one in both directions.
@@ -104,58 +153,70 @@ export function BottomBarProvider({ children }: { children: React.ReactNode }) {
        * restarted its easing from there instead, which is the hitch that made
        * a turnaround read as a snap. See `component.bottomBarHide`.
        */
-      const { reducedDuration, ...spring } = component.bottomBarHide;
       hidden.value = reduceMotion
-        ? withTiming(next, { duration: reducedDuration, easing: easing.standard })
-        : withSpring(next, spring);
+        ? withTiming(next, { duration: HIDE_REDUCED_MS, easing: HIDE_REDUCED_EASING })
+        : withSpring(next, HIDE_SPRING);
+      /* Once per change of direction, never per frame. */
+      runOnJS(reportAway)(next === 1);
     },
-    [hidden, reduceMotion],
+    [hidden, target, reduceMotion, reportAway],
   );
 
-  const onScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const y = event.nativeEvent.contentOffset.y;
-
-      if (resync.current) {
-        resync.current = false;
-        lastY.current = y;
-        travel.current = 0;
+  const onScrollY = useCallback(
+    (y: number) => {
+      'worklet';
+      if (resync.value) {
+        resync.value = false;
+        lastY.value = y;
+        travel.value = 0;
         return;
       }
 
-      const dy = y - lastY.current;
-      lastY.current = y;
+      const dy = y - lastY.value;
+      lastY.value = y;
 
       if (y <= ALWAYS_SHOWN_ABOVE) {
-        travel.current = 0;
+        travel.value = 0;
         setHidden(0);
         return;
       }
 
       /* A change of direction starts the measurement over, so the threshold is
          14pt of DELIBERATE travel rather than 14pt of net drift. */
-      if ((dy > 0) !== (travel.current > 0)) travel.current = 0;
-      travel.current += dy;
+      if ((dy > 0) !== (travel.value > 0)) travel.value = 0;
+      travel.value += dy;
 
-      if (travel.current > TRAVEL_THRESHOLD) setHidden(1);
-      else if (travel.current < -TRAVEL_THRESHOLD) setHidden(0);
+      if (travel.value > TRAVEL_THRESHOLD) setHidden(1);
+      else if (travel.value < -TRAVEL_THRESHOLD) setHidden(0);
     },
-    [setHidden],
+    [resync, lastY, travel, setHidden],
+  );
+
+  /* For the scrollables that report on the JS thread: the same worklet, in the
+     same order, one hop across. */
+  const onScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      runOnUI(onScrollY)(event.nativeEvent.contentOffset.y);
+    },
+    [onScrollY],
   );
 
   const showBar = useCallback(() => {
-    resync.current = true;
-    travel.current = 0;
-    setHidden(0);
-  }, [setHidden]);
+    runOnUI(() => {
+      'worklet';
+      resync.value = true;
+      travel.value = 0;
+      setHidden(0);
+    })();
+  }, [resync, travel, setHidden]);
 
   const setHeight = useCallback((next: number) => {
     setHeightState((current) => (current === next ? current : next));
   }, []);
 
   const value = useMemo(
-    () => ({ hidden, height, setHeight, onScroll, showBar }),
-    [hidden, height, setHeight, onScroll, showBar],
+    () => ({ hidden, height, setHeight, onScroll, onScrollY, awayStore, showBar }),
+    [hidden, height, setHeight, onScroll, onScrollY, awayStore, showBar],
   );
 
   return <BottomBarContext.Provider value={value}>{children}</BottomBarContext.Provider>;
@@ -165,4 +226,31 @@ export function useBottomBar(): BottomBarValue {
   const value = useContext(BottomBarContext);
   if (!value) throw new Error('useBottomBar must be used inside BottomBarProvider');
   return value;
+}
+
+/**
+ * True once the bar has slid out of sight on scroll, false the moment it
+ * starts back up.
+ *
+ * For what lives ON the bar and loops forever — the Food door's scooter and
+ * glow: off screen, they have nothing to animate for. True only after
+ * `AWAY_SETTLE_MS`, so a loop never freezes while the bar is still visibly
+ * leaving; false at once, so it is already moving as the bar comes back.
+ * Only the components that call this re-render when it changes.
+ */
+export function useBottomBarAway(): boolean {
+  const { awayStore } = useBottomBar();
+  const leaving = useSyncExternalStore(awayStore.subscribe, awayStore.get, awayStore.get);
+  const [away, setAway] = useState(false);
+
+  useEffect(() => {
+    if (!leaving) {
+      setAway(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setAway(true), AWAY_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [leaving]);
+
+  return away;
 }

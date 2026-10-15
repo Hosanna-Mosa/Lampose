@@ -47,6 +47,7 @@ import * as TaskManager from "expo-task-manager";
 
 import { secureFields } from "@/services/secureStore";
 import { api, API_URL } from "@/utils/api";
+import { colors } from "@/theme";
 
 /** Registered with the OS under this name. Changing it orphans a task that a
  *  previously-installed build may still have running. */
@@ -297,7 +298,7 @@ export async function startDeliveryTracking(mode: TrackingMode = "delivery"): Pr
       foregroundService: {
         notificationTitle: MODE_OPTIONS[mode].title,
         notificationBody: MODE_OPTIONS[mode].body,
-        notificationColor: "#0F5F52",
+        notificationColor: colors.brand,
         killServiceOnDestroy: false,
       },
       showsBackgroundLocationIndicator: true,

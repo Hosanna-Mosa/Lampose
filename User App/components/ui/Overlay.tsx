@@ -1,6 +1,6 @@
-import React from 'react';
-import { Modal as RNModal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import React, { useEffect, useState } from 'react';
+import { Modal as RNModal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 /* The library's KeyboardAvoidingView, not React Native's — see the note on
    its use in `app/support/[id].tsx`. A sheet is exactly the same shape of
    problem: content anchored to the bottom of the screen, with a field inside
@@ -8,10 +8,6 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
    `behavior` ternary to do anything on Android at all. */
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, {
-  FadeIn,
-  FadeOut,
-  SlideInDown,
-  SlideOutDown,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -39,15 +35,68 @@ export type BottomSheetProps = {
   footer?: React.ReactNode;
 };
 
+/** The slide in, and the slide out. Out is a touch quicker: leaving is not news. */
+const OPEN_MS = 280;
+const CLOSE_MS = 220;
+const FADE_MS = 160;
+
 /**
  * The handle is decorative — the drag gesture lives on the whole header, which
  * is a far larger target than a 40×4 bar.
+ *
+ * ## The sheet sits on the real bottom edge
+ *
+ * The modal is `statusBarTranslucent` and `navigationBarTranslucent`. The app
+ * runs edge-to-edge on Android, and a modal without both laid itself out for
+ * the full screen height inside a window that started BELOW the status bar —
+ * so the bottom of every sheet hung off the screen. "Long stay" showed and
+ * "Short stay", the row beneath it, could not be reached. `paddingBottom`
+ * below already clears the navigation bar with the safe-area inset.
+ *
+ * ## One driven value, not a layout animation
+ *
+ * The slide was `SlideInDown` / `SlideOutDown` — layout animations, which on
+ * Android's new architecture can stall partway inside a native modal, leaving
+ * a sheet frozen half on screen. And an exit animation could never play: the
+ * modal unmounted the instant `visible` went false. Now `progress` runs 0 → 1
+ * on open and 1 → 0 on close, the scrim and the sheet both read it, and the
+ * modal stays mounted until the slide out has actually finished.
  */
 export function BottomSheet({ visible, onClose, title, children, footer }: BottomSheetProps) {
   const { colors, space, radius, layout } = useTheme();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReduceMotion();
+  const { height: windowHeight } = useWindowDimensions();
+
+  /** The finger's drag, downward only. */
   const translateY = useSharedValue(0);
+  /** 0 parked below the screen, 1 fully up. */
+  const progress = useSharedValue(0);
+  /* How far the sheet travels to leave: its own height once measured, the
+     window's until then, so the first frame is always off screen. */
+  const sheetHeight = useSharedValue(windowHeight);
+  /** The modal outlives `visible` by the length of the slide out. */
+  const [mounted, setMounted] = useState(visible);
+
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      translateY.value = 0;
+      progress.value = withTiming(1, {
+        duration: reduceMotion ? FADE_MS : OPEN_MS,
+        easing: easing.enter,
+      });
+      return;
+    }
+    progress.value = withTiming(
+      0,
+      { duration: reduceMotion ? FADE_MS : CLOSE_MS, easing: easing.exit },
+      (finished) => {
+        /* Not when a reopen interrupted it — that one is keeping it up. */
+        if (finished) runOnJS(setMounted)(false);
+      },
+    );
+  }, [visible, reduceMotion, progress, translateY]);
 
   const pan = Gesture.Pan()
     .onChange((event) => {
@@ -56,23 +105,42 @@ export function BottomSheet({ visible, onClose, title, children, footer }: Botto
     })
     .onEnd((event) => {
       if (event.velocityY > DISMISS_VELOCITY || translateY.value > 120) {
+        /* The drag stays where the finger left it; the close slides on from
+           there rather than snapping back up first. */
         runOnJS(onClose)();
-        translateY.value = 0;
       } else {
         translateY.value = withSpring(0, SHEET_SPRING);
       }
     });
 
-  const sheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
+  const sheetStyle = useAnimatedStyle(() => {
+    if (reduceMotion) {
+      /* Reduced motion keeps the fade and drops the travel. */
+      return { opacity: progress.value, transform: [{ translateY: translateY.value }] };
+    }
+    return {
+      transform: [{ translateY: translateY.value + (1 - progress.value) * sheetHeight.value }],
+    };
+  });
+  const scrimStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
+
+  if (!mounted) return null;
 
   return (
-    <RNModal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      {/* Scrim fades on its own 200ms curve, independent of the sheet spring. */}
-      <Animated.View
-        entering={FadeIn.duration(200)}
-        exiting={FadeOut.duration(160)}
-        style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }]}
-      >
+    <RNModal
+      visible
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={onClose}
+    >
+      {/* A modal is its own native window on Android, outside the app's root
+          gesture view — gestures inside it need a root of their own or they
+          are not recognised. */}
+      <GestureHandlerRootView style={styles.flex}>
+      {/* Scrim fades with the sheet, on the same value. */}
+      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }, scrimStyle]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
       </Animated.View>
 
@@ -83,10 +151,11 @@ export function BottomSheet({ visible, onClose, title, children, footer }: Botto
           field low in a sheet's content is typed into blind, same as the
           composer this pattern was first fixed on. */}
       <KeyboardAvoidingView style={styles.sheetHost} pointerEvents="box-none" behavior="padding">
-        <GestureDetector gesture={pan}>
           <Animated.View
-            entering={reduceMotion ? FadeIn.duration(160) : SlideInDown.duration(300)}
-            exiting={reduceMotion ? FadeOut.duration(160) : SlideOutDown.duration(240)}
+            onLayout={(event) => {
+              const measured = event.nativeEvent.layout.height;
+              if (measured > 0) sheetHeight.value = measured;
+            }}
             style={[
               sheetStyle,
               {
@@ -98,15 +167,21 @@ export function BottomSheet({ visible, onClose, title, children, footer }: Botto
               },
             ]}
           >
-            <View style={[styles.sheetHeader, { paddingHorizontal: space[4], paddingTop: space[3], gap: space[3] }]}>
-              <View style={[styles.handle, { backgroundColor: colors.border, borderRadius: radius.pill }]} />
-              <View style={styles.sheetTitleRow}>
-                <Text variant="title2" style={styles.flex}>
-                  {title}
-                </Text>
-                <IconButton name="close" onPress={onClose} accessibilityLabel="Close" />
+            {/* The drag lives on the header only. It was on the whole sheet,
+                so a list inside — "How many months", twelve rows — could not
+                be scrolled: every vertical drag on it was read as pulling the
+                sheet down, and the list sat stuck. */}
+            <GestureDetector gesture={pan}>
+              <View style={[styles.sheetHeader, { paddingHorizontal: space[4], paddingTop: space[3], gap: space[3] }]}>
+                <View style={[styles.handle, { backgroundColor: colors.border, borderRadius: radius.pill }]} />
+                <View style={styles.sheetTitleRow}>
+                  <Text variant="title2" style={styles.flex}>
+                    {title}
+                  </Text>
+                  <IconButton name="close" onPress={onClose} accessibilityLabel="Close" />
+                </View>
               </View>
-            </View>
+            </GestureDetector>
 
             {/* `flexShrink` so content taller than the 90% cap scrolls inside
                 the sheet instead of pushing the footer off the bottom. */}
@@ -123,8 +198,8 @@ export function BottomSheet({ visible, onClose, title, children, footer }: Botto
               </View>
             ) : null}
           </Animated.View>
-        </GestureDetector>
       </KeyboardAvoidingView>
+      </GestureHandlerRootView>
     </RNModal>
   );
 }

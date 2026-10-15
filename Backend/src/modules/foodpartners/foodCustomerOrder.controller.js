@@ -906,6 +906,87 @@ const confirmMyDelivery = async (req, res, next) => {
   }
 };
 
+// @route   POST /api/v2/food-partners/orders/:orderNumber/rider-rating
+// @desc    Rate the rider who delivered this order, 1–5 stars
+// @access  Customer session (owner only)
+//
+// The only way a rider's rating comes to exist. Once per order, by the diner
+// who placed it, after it was delivered by a Lampose app rider — not by the
+// restaurant's own person or the desk's driver, who are not accounts here and
+// would have nobody's average to land on — and within a week of arriving.
+//
+// "Once" is enforced by the write itself: the stars are set only where none
+// are yet, so a double tap or a second tab cannot count one delivery twice.
+// The rider's average is then recomputed from their orders (see
+// `riderRating.service`); if that fails the rating still stands on the order
+// and the next recompute picks it up, so the diner is not told it failed.
+const rateMyRider = async (req, res, next) => {
+  try {
+    if (!isUp()) return dbDown(res);
+
+    const body = req.body || {};
+    const stars = Number(body.stars);
+    if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
+      return fail(res, 400, 'BAD_RATING', 'Choose between one and five stars.');
+    }
+    const comment = String(body.comment || '').trim().slice(0, 300);
+
+    const order = await FoodOrder.findOne({
+      customerId: req.customer.customerId,
+      orderNumber: String(req.params.orderNumber || '').trim().toUpperCase(),
+    });
+    if (!order) return fail(res, 404, 'NOT_FOUND', 'We could not find that order.');
+
+    const delivery = order.delivery || {};
+    if (!delivery.driverId) {
+      return fail(
+        res, 409, 'NO_RIDER',
+        'This order was not brought by a Lampose rider, so there is no rider to rate.',
+      );
+    }
+    if (order.status !== 'delivered') {
+      return fail(res, 409, 'NOT_DELIVERED', 'You can rate the rider once your order has been delivered.');
+    }
+    if (delivery.rating && delivery.rating.ratedAt) {
+      return fail(res, 409, 'ALREADY_RATED', 'You have already rated this delivery.');
+    }
+
+    // eslint-disable-next-line global-require
+    const riderRating = require('../drivers/riderRating.service');
+    const deliveredAt = delivery.deliveredAt || order.updatedAt;
+    if (deliveredAt && Date.now() - new Date(deliveredAt).getTime() > riderRating.RATING_WINDOW_MS) {
+      return fail(res, 409, 'RATING_CLOSED', 'Deliveries can be rated for a week after they arrive.');
+    }
+
+    /* Only where no rating has been given — the guard against counting twice.
+       A missing `ratedAt` (an order from before ratings existed) matches null. */
+    const rated = await FoodOrder.findOneAndUpdate(
+      { _id: order._id, 'delivery.rating.ratedAt': null },
+      {
+        $set: {
+          'delivery.rating.stars': stars,
+          'delivery.rating.comment': comment,
+          'delivery.rating.ratedAt': new Date(),
+        },
+      },
+      { new: true },
+    );
+    if (!rated) return fail(res, 409, 'ALREADY_RATED', 'You have already rated this delivery.');
+
+    try {
+      await riderRating.recompute(delivery.driverId);
+    } catch (error) {
+      logError('recomputing a rider rating', error);
+    }
+
+    console.log(`${BADGE} [Rider Rated] ${rated.orderNumber}: ${stars}★`);
+    return res.json({ success: true, data: customerView(rated) });
+  } catch (error) {
+    logError('rating a rider', error);
+    return next(error);
+  }
+};
+
 // @route   PATCH /api/v2/food-partners/orders/:orderNumber/cash
 // @desc    Pay for a held online order in cash instead
 // @access  Customer session (owner only)
@@ -1001,7 +1082,7 @@ const switchMyOrderToCash = async (req, res, next) => {
 
 module.exports = {
   quoteOrder,
-  placeOrder, listMyOrders, getMyOrder, cancelMyOrder, confirmMyDelivery, switchMyOrderToCash,
+  placeOrder, listMyOrders, getMyOrder, cancelMyOrder, confirmMyDelivery, switchMyOrderToCash, rateMyRider,
 };
 
 module.exports.COD_LIMIT_RUPEES = COD_LIMIT_RUPEES;

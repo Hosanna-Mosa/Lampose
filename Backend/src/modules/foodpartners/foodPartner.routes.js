@@ -54,7 +54,7 @@ const {
 const { listMyOrders, getMyOrder, setOrderStatus } = require('./foodOrder.controller');
 const {
   placeOrder, quoteOrder, listMyOrders: listCustomerOrders, getMyOrder: getCustomerOrder, cancelMyOrder, confirmMyDelivery,
-  switchMyOrderToCash,
+  switchMyOrderToCash, rateMyRider,
 } = require('./foodCustomerOrder.controller');
 const {
   startPayment, verifyPayment, renderCheckout, checkoutCallback,
@@ -329,6 +329,8 @@ router.patch('/orders/:orderNumber/cancel', customer, cancelMyOrder);
 router.patch('/orders/:orderNumber/cash', customer, switchMyOrderToCash);
 /* "Delivered" — the diner says a website order has reached them. See the handler. */
 router.patch('/orders/:orderNumber/delivered', customer, confirmMyDelivery);
+/* The diner's stars for the rider who brought it — once, after delivery. See the handler. */
+router.post('/orders/:orderNumber/rider-rating', customer, rateMyRider);
 
 /* ── Dine-in: the diner's side ───────────────────────────────────────────
    Booking is behind the diner's session; a booking is only ever read or

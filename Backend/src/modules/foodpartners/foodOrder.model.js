@@ -682,6 +682,25 @@ const foodOrderSchema = new mongoose.Schema(
       acceptedFromMeters: { type: Number, default: 0, min: 0 },
 
       /*
+       * ── What the diner said about the rider ─────────────────────────────
+       *
+       * Given once, by the diner who placed the order, after it was delivered
+       * by a Lampose app rider — see `rateMyRider`. The rider's average on
+       * `app_drivers.rating` is RECOMPUTED from these (`riderRating.service`),
+       * never incremented beside them, for the same reason earnings are read
+       * from orders: one ledger cannot disagree with itself.
+       *
+       * Who said it is the diner's and ours alone. The kitchen's view deletes
+       * it, and the rider's own order view never names it — a rider who can
+       * see that a doorstep gave them one star knows whose door it was.
+       */
+      rating: {
+        stars: { type: Number, default: null, min: 1, max: 5 },
+        comment: { type: String, default: '', trim: true, maxlength: 300 },
+        ratedAt: { type: Date, default: null },
+      },
+
+      /*
        * ── Who is bringing it, as the RESTAURANT decided ─────────────────────
        *
        * Chosen in the console when the order is accepted (or afterwards, from
@@ -1357,6 +1376,13 @@ const partnerView = (order) => {
   delete doc.smallOrderFee;
   const snapshot = doc.pricing || null;
   delete doc.pricing;
+
+  /* The diner's verdict on the rider is not the kitchen's to read — see
+     `delivery.rating` on the schema. */
+  if (doc.delivery) {
+    doc.delivery = { ...doc.delivery };
+    delete doc.delivery.rating;
+  }
 
   const delivery = doc.delivery || {};
   const request = delivery.request || {};

@@ -343,6 +343,12 @@ export type FoodOrder = {
    * Lampose rider and no door PIN — the diner closes it with "Delivered".
    */
   restaurantDelivers?: boolean;
+  /**
+   * The diner's rating of the rider who delivered it, or null if they have not
+   * given one. Only a Lampose rider's delivery can carry one — see
+   * `RateRiderCard` for when it is asked for.
+   */
+  riderRating?: { stars: number; comment: string } | null;
   /** [longitude, latitude] of the kitchen, snapshotted onto the order. */
   pickupLocation?: [number, number] | null;
   /** [longitude, latitude] of the door. Absent without location access. */

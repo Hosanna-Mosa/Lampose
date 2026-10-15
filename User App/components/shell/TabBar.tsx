@@ -21,7 +21,7 @@ import { Icon, Text, type IconName, type IconSize } from '@/components/ui';
 import { component, easing } from '@/constants/motion';
 import { FOOD_EMBER, type ThemeColors } from '@/constants/tokens';
 import { useAmbientPaused } from '@/context/AmbientMotionContext';
-import { useBottomBar } from '@/context/BottomBarContext';
+import { useBottomBar, useBottomBarAway } from '@/context/BottomBarContext';
 import { usePendingRequest } from '@/context/PendingRequestContext';
 import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { withAlpha } from '@/utils/color';
@@ -922,8 +922,11 @@ function ScooterGlyph({
   const spin = useSharedValue(0);
   const bob = useSharedValue(0);
   const wind = useSharedValue(0);
-  /* Not while the screen holding the bar is covered — see AmbientMotionContext. */
-  const paused = useAmbientPaused();
+  /* Not while the screen holding the bar is covered — see AmbientMotionContext —
+     nor while the bar has slid off screen on scroll, where the door went with it. */
+  const covered = useAmbientPaused();
+  const barAway = useBottomBarAway();
+  const paused = covered || barAway;
 
   useEffect(() => {
     if (!riding || paused) {
@@ -1202,8 +1205,10 @@ function DoorButton({
   const reduceMotion = useReduceMotion();
   const scale = useSharedValue(1);
   const pulse = useSharedValue(0);
-  const paused = useAmbientPaused();
-  const glows = !!tab.glow && !collapsed && !reduceMotion && !paused;
+  /* Covered, or tucked off screen with the bar — see `ScooterGlyph`. */
+  const covered = useAmbientPaused();
+  const barAway = useBottomBarAway();
+  const glows = !!tab.glow && !collapsed && !reduceMotion && !covered && !barAway;
 
   useEffect(() => {
     if (!glows) {

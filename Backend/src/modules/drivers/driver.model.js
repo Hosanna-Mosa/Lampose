@@ -288,6 +288,20 @@ const driverSchema = new mongoose.Schema(
        both sides in the same handler. */
     currentOrderNumber: { type: String, default: null },
 
+    /*
+     * What diners have said about this rider's deliveries: the average of
+     * every `food_orders.delivery.rating.stars` against their id, and how many.
+     *
+     * A cache, not a counter. `riderRating.service` recomputes both from the
+     * orders after each new rating, so the figure can always be rebuilt from
+     * the ledger it summarises and can never drift from it. `avg` is null until
+     * the first rating — "no ratings yet" is not the same as a bad one.
+     */
+    rating: {
+      avg: { type: Number, default: null, min: 1, max: 5 },
+      count: { type: Number, default: 0, min: 0 },
+    },
+
     currentLocation: { type: pointSchema, default: undefined },
     /* Written on every position update. A position without one of these is
        treated as absent — see the header. */

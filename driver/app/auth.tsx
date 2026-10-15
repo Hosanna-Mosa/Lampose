@@ -345,10 +345,10 @@ export default function AuthScreen() {
         >
           <Path
             d="M 0 0 C 90 0, 180 40, 210 110 C 240 170, 160 210, 100 200 C 40 190, 0 150, 0 80 Z"
-            fill="#EAF5EE"
+            fill={colors.brandTint}
             opacity="0.8"
           />
-          <Circle cx="175" cy="85" r="14" fill="#CDE9D5" opacity="0.85" />
+          <Circle cx="175" cy="85" r="14" fill={colors.brandOnDark} opacity="0.85" />
         </Svg>
 
         {/* Right side floating circles */}
@@ -358,7 +358,7 @@ export default function AuthScreen() {
           viewBox="0 0 70 70"
           style={{ position: "absolute", top: "38%", right: 18 }}
         >
-          <Circle cx="35" cy="35" r="14" fill="#CDE9D5" opacity="0.85" />
+          <Circle cx="35" cy="35" r="14" fill={colors.brandOnDark} opacity="0.85" />
         </Svg>
         <Svg
           width={80}
@@ -366,7 +366,7 @@ export default function AuthScreen() {
           viewBox="0 0 80 80"
           style={{ position: "absolute", top: "45%", right: -28 }}
         >
-          <Circle cx="40" cy="40" r="28" fill="#EAF5EE" opacity="0.7" />
+          <Circle cx="40" cy="40" r="28" fill={colors.brandTint} opacity="0.7" />
         </Svg>
 
         {/* Bottom corner flowing waves */}
@@ -378,18 +378,18 @@ export default function AuthScreen() {
         >
           <Path
             d={`M 0 70 C ${screenWidth * 0.12} 85, ${screenWidth * 0.26} 125, ${screenWidth * 0.4} 170 L 0 170 Z`}
-            fill="#EBF5EF"
+            fill={colors.brandTint}
             opacity="0.85"
           />
           <Path
             d={`M ${screenWidth * 0.64} 170 C ${screenWidth * 0.76} 130, ${screenWidth * 0.88} 85, ${screenWidth} 40 L ${screenWidth} 170 Z`}
-            fill="#EAF5EE"
+            fill={colors.brandTint}
             opacity="0.85"
           />
           <Path
             d={`M 0 95 C ${screenWidth * 0.22} 120, ${screenWidth * 0.38} 162, ${screenWidth * 0.52} 162 C ${screenWidth * 0.68} 162, ${screenWidth * 0.84} 95, ${screenWidth} 28`}
             fill="none"
-            stroke="#0A5A41"
+            stroke={colors.brand}
             strokeWidth="1.2"
             opacity="0.22"
           />
@@ -420,7 +420,7 @@ export default function AuthScreen() {
                 resizeMode="contain"
               />
               <View style={styles.partnerPill}>
-                <Icon name="vehicle" size={13} color="#059669" />
+                <Icon name="vehicle" size={13} color={colors.brand} />
                 <Text style={styles.partnerPillText}>Driver Partner</Text>
               </View>
             </View>
@@ -436,8 +436,8 @@ export default function AuthScreen() {
               >
                 {/* Headlines */}
                 <Text style={styles.headline}>
-                  Deliver <Text style={styles.textGreen}>&</Text>{" "}
-                  <Text style={styles.textGreen}>Earn</Text>
+                  Deliver <Text style={styles.textEmphasis}>&</Text>{" "}
+                  <Text style={styles.textEmphasis}>Earn</Text>
                 </Text>
                 <Text style={styles.headline}>With Lampose</Text>
 
@@ -458,7 +458,7 @@ export default function AuthScreen() {
                           focusedField === "email" && styles.phoneInputFocused,
                         ]}
                       >
-                        <Icon name="message" size={18} color="#0A5A41" />
+                        <Icon name="message" size={18} color={colors.brand} />
                         <View style={styles.divider} />
                         <TextInput
                           value={email}
@@ -469,14 +469,14 @@ export default function AuthScreen() {
                           onFocus={() => setFocusedField("email")}
                           onBlur={() => setFocusedField(null)}
                           placeholder="Email address"
-                          placeholderTextColor="#94A3B8"
+                          placeholderTextColor={colors.textTertiary}
                           keyboardType="email-address"
                           textContentType="emailAddress"
                           autoComplete="email"
                           autoCapitalize="none"
                           autoCorrect={false}
                           style={[styles.phoneInput, styles.phoneInputEmpty]}
-                          selectionColor="#0A5A41"
+                          selectionColor={colors.brand}
                           returnKeyType="next"
                           onSubmitEditing={() => passwordInputRef.current?.focus()}
                           accessibilityLabel="Email address"
@@ -489,7 +489,7 @@ export default function AuthScreen() {
                           focusedField === "password" && styles.phoneInputFocused,
                         ]}
                       >
-                        <Icon name="lock" size={18} color="#0A5A41" />
+                        <Icon name="lock" size={18} color={colors.brand} />
                         <View style={styles.divider} />
                         <TextInput
                           ref={passwordInputRef}
@@ -501,14 +501,14 @@ export default function AuthScreen() {
                           onFocus={() => setFocusedField("password")}
                           onBlur={() => setFocusedField(null)}
                           placeholder="Password"
-                          placeholderTextColor="#94A3B8"
+                          placeholderTextColor={colors.textTertiary}
                           secureTextEntry
                           textContentType="password"
                           autoComplete="password"
                           autoCapitalize="none"
                           autoCorrect={false}
                           style={[styles.phoneInput, styles.phoneInputEmpty]}
-                          selectionColor="#0A5A41"
+                          selectionColor={colors.brand}
                           returnKeyType="done"
                           onSubmitEditing={submitPassword}
                           accessibilityLabel="Password"
@@ -525,7 +525,7 @@ export default function AuthScreen() {
                           Boolean(numberError) && styles.phoneInputError,
                         ]}
                       >
-                        <Icon name="phone" size={18} color="#0A5A41" />
+                        <Icon name="phone" size={18} color={colors.brand} />
                         <Text style={styles.countryCodeText}>+91</Text>
                         <View style={styles.divider} />
                         <TextInput
@@ -538,13 +538,13 @@ export default function AuthScreen() {
                             setTouched(true);
                           }}
                           placeholder="Enter mobile number"
-                          placeholderTextColor="#94A3B8"
+                          placeholderTextColor={colors.textTertiary}
                           keyboardType="number-pad"
                           textContentType="telephoneNumber"
                           autoComplete="tel"
                           maxLength={10}
                           style={[styles.phoneInput, digits.length === 0 && styles.phoneInputEmpty]}
-                          selectionColor="#0A5A41"
+                          selectionColor={colors.brand}
                           returnKeyType="done"
                           onSubmitEditing={() => numberValid && submitPhone()}
                         />
@@ -573,19 +573,19 @@ export default function AuthScreen() {
                       accessibilityRole="button"
                     >
                       <LinearGradient
-                        colors={["#1E7B4C", "#0E6342", "#0A563A"]}
+                        colors={[colors.brand, colors.brandPressed]}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 0, y: 1 }}
                         style={styles.primaryButton}
                       >
                         {busy || otpSending ? (
-                          <ActivityIndicator size="small" color="#FFFFFF" />
+                          <ActivityIndicator size="small" color={colors.onBrand} />
                         ) : (
                           <View style={styles.primaryButtonRow}>
                             <Text style={styles.primaryButtonText}>
                               {mode === "email" ? "Sign In" : "Send OTP Code"}
                             </Text>
-                            <Icon name="arrowRight" size={20} color="#FFFFFF" />
+                            <Icon name="arrowRight" size={20} color={colors.onBrand} />
                           </View>
                         )}
                       </LinearGradient>
@@ -622,7 +622,7 @@ export default function AuthScreen() {
                 <Text style={styles.headline}>Enter the code</Text>
                 <Text style={styles.subtitle}>
                   We sent {OTP_LENGTH} digits to{"\n"}
-                  <Text style={{ fontWeight: "700", color: "#141A24" }}>
+                  <Text style={{ fontWeight: "700", color: colors.textPrimary }}>
                     +91 {tenDigits || "your phone"}
                   </Text>
                 </Text>
@@ -650,20 +650,20 @@ export default function AuthScreen() {
                         textContentType={i === 0 ? "oneTimeCode" : "none"}
                         autoComplete={i === 0 ? "sms-otp" : "off"}
                         selectTextOnFocus
-                        selectionColor="#0A5A41"
+                        selectionColor={colors.brand}
                       />
                     ))}
                   </View>
 
                   {/* Optional Driver Name Field */}
                   <View style={styles.nameFieldContainer}>
-                    <Icon name="profile" size={18} color="#0A5A41" />
+                    <Icon name="profile" size={18} color={colors.brand} />
                     <TextInput
                       style={styles.nameInput}
                       value={name}
                       onChangeText={setName}
                       placeholder="Your full name (optional)"
-                      placeholderTextColor="#94A3B8"
+                      placeholderTextColor={colors.textTertiary}
                       autoCapitalize="words"
                       maxLength={60}
                     />
@@ -687,17 +687,17 @@ export default function AuthScreen() {
                       ]}
                     >
                       <LinearGradient
-                        colors={["#1E7B4C", "#0E6342", "#0A563A"]}
+                        colors={[colors.brand, colors.brandPressed]}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 0, y: 1 }}
                         style={styles.primaryButton}
                       >
                         {busy ? (
-                          <ActivityIndicator size="small" color="#FFFFFF" />
+                          <ActivityIndicator size="small" color={colors.onBrand} />
                         ) : (
                           <View style={styles.primaryButtonRow}>
                             <Text style={styles.primaryButtonText}>Verify & Start Shifts</Text>
-                            <Icon name="arrowRight" size={20} color="#FFFFFF" />
+                            <Icon name="arrowRight" size={20} color={colors.onBrand} />
                           </View>
                         )}
                       </LinearGradient>
@@ -711,7 +711,7 @@ export default function AuthScreen() {
                       onPress={handleResend}
                       style={styles.actionBtn}
                     >
-                      <Text style={[styles.actionBtnText, cooldown > 0 && { color: "#94A3B8" }]}>
+                      <Text style={[styles.actionBtnText, cooldown > 0 && { color: colors.textTertiary }]}>
                         {cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}
                       </Text>
                     </Pressable>
@@ -757,7 +757,7 @@ function readError(err: unknown, fallback: string): string {
 const styles = StyleSheet.create({
   rootContainer: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
   },
   backgroundBlobs: {
     ...StyleSheet.absoluteFillObject,
@@ -788,18 +788,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#ecfdf5",
+    backgroundColor: colors.brandTint,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#d1fae5",
+    borderColor: colors.success.border,
     marginTop: 6,
   },
   partnerPillText: {
     fontSize: 11.5,
     fontWeight: "700",
-    color: "#047857",
+    color: colors.textPrimary,
     letterSpacing: 0.3,
   },
 
@@ -818,19 +818,19 @@ const styles = StyleSheet.create({
   headline: {
     fontSize: 28,
     fontWeight: "800",
-    color: "#141A24",
+    color: colors.textPrimary,
     textAlign: "center",
     lineHeight: 38,
     letterSpacing: -0.5,
   },
-  textGreen: {
-    color: "#0A5E44",
+  textEmphasis: {
+    color: colors.textPrimary,
     fontSize: 28,
     fontWeight: "800",
   },
   subtitle: {
     fontSize: 14.5,
-    color: "#7C808C",
+    color: colors.textTertiary,
     textAlign: "center",
     marginTop: 8,
     lineHeight: 22,
@@ -849,13 +849,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1.2,
-    borderColor: "#E6EAE7",
+    borderColor: colors.success.border,
     borderRadius: 30,
     paddingHorizontal: 16,
     paddingVertical: 12,
     minHeight: 52,
-    backgroundColor: "#FFFFFF",
-    shadowColor: "#000",
+    backgroundColor: colors.surface,
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.03,
     shadowRadius: 8,
@@ -863,28 +863,28 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   phoneInputFocused: {
-    borderColor: "#0A5A41",
+    borderColor: colors.brand,
     shadowOpacity: 0.06,
   },
   phoneInputError: {
-    borderColor: "#EF4444",
+    borderColor: colors.danger.base,
   },
   countryCodeText: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#141A24",
+    color: colors.textPrimary,
     marginLeft: 8,
   },
   divider: {
     width: 1,
     height: 22,
-    backgroundColor: "#E2E8F0",
+    backgroundColor: colors.surfaceSunken,
     marginHorizontal: 12,
   },
   phoneInput: {
     flex: 1,
     fontSize: 17,
-    color: "#141A24",
+    color: colors.textPrimary,
     fontWeight: "600",
     paddingVertical: 0,
   },
@@ -900,7 +900,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   errorText: {
-    color: "#EF4444",
+    color: colors.danger.base,
     fontSize: 12,
     marginTop: 8,
     alignSelf: "flex-start",
@@ -919,16 +919,16 @@ const styles = StyleSheet.create({
     height: 54,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: "#E2E8F0",
-    backgroundColor: "#FFFFFF",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     textAlign: "center",
     fontSize: 22,
     fontWeight: "700",
-    color: "#064e3b",
+    color: colors.textPrimary,
   },
   otpBoxFilled: {
-    borderColor: "#0A5A41",
-    backgroundColor: "#ecfdf5",
+    borderColor: colors.brand,
+    backgroundColor: colors.brandTint,
   },
 
   /* Name Field */
@@ -937,18 +937,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderWidth: 1.2,
-    borderColor: "#E6EAE7",
+    borderColor: colors.success.border,
     borderRadius: 30,
     paddingHorizontal: 16,
     height: 50,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     marginTop: 16,
     width: "100%",
   },
   nameInput: {
     flex: 1,
     fontSize: 15,
-    color: "#141A24",
+    color: colors.textPrimary,
   },
 
   /* CTA Button */
@@ -956,7 +956,7 @@ const styles = StyleSheet.create({
     width: "100%",
     marginTop: 20,
     borderRadius: 30,
-    shadowColor: "#0A563A",
+    shadowColor: colors.brandPressed,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.28,
     shadowRadius: 14,
@@ -980,7 +980,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   primaryButtonText: {
-    color: "#FFFFFF",
+    color: colors.onBrand,
     fontSize: 16.5,
     fontWeight: "700",
   },
@@ -989,13 +989,13 @@ const styles = StyleSheet.create({
   termsText: {
     textAlign: "center",
     fontSize: 12,
-    color: "#8E95A2",
+    color: colors.textTertiary,
     lineHeight: 19,
     marginTop: 20,
     width: "100%",
   },
   termsLink: {
-    color: "#0A5A41",
+    color: colors.textPrimary,
     fontWeight: "700",
   },
 
@@ -1013,12 +1013,12 @@ const styles = StyleSheet.create({
   actionBtnText: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#0A5A41",
+    color: colors.textPrimary,
   },
   actionBtnTextSecondary: {
     fontSize: 13.5,
     fontWeight: "600",
-    color: "#64748B",
+    color: colors.textSecondary,
   },
 
   /* Footer */
@@ -1032,12 +1032,12 @@ const styles = StyleSheet.create({
   footerScriptText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#18583E",
+    color: colors.textSecondary,
     textAlign: "center",
     letterSpacing: 0.2,
   },
   footerPipe: {
-    color: "#CBD5E1",
+    color: colors.textTertiary,
     fontSize: 13,
     marginHorizontal: 6,
   },

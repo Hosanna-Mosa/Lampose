@@ -99,6 +99,8 @@ export type ThemeColors = {
 
   /** Modal and sheet backdrop. */
   scrim: string;
+  /** The colour every drop shadow is cast in. */
+  shadow: string;
 
   success: SemanticColor;
   warning: SemanticColor & { borderStrong: string };
@@ -150,7 +152,10 @@ const lightColors: ThemeColors = {
   brand: "#0E6E5C",
   brandPressed: "#0A5748",
   onBrand: "#FFFFFF",
-  brandInk: "#0E6E5C",
+  /* No green text anywhere in the rider app: the teal is a FILL colour
+     (buttons, the online state, tints), and every word — a link, a ghost
+     button's label, a "brand" heading — is set in the ordinary ink. */
+  brandInk: "#1A1917",
   brandTint: "#E3F0EB",
   brandOnDark: "#B7D4CE",
 
@@ -160,13 +165,15 @@ const lightColors: ThemeColors = {
   onGraphiteMuted: "#BFBAB1",
 
   scrim: "rgba(26,25,23,0.45)",
+  shadow: "#000000",
 
   /*
    * Success shares ACCENT, exactly as Dock specifies: a delivered order IS
    * the good outcome. Survivable only because status is never carried by
    * colour alone — every status chip ships a glyph or a word beside it.
    */
-  success: { base: "#0E6E5C", ink: "#0B5245", tint: "#E3F0EB", border: "#B7D4CE", on: "#FFFFFF" },
+  /* `ink` is neutral for the same reason as `brandInk`: no green text. */
+  success: { base: "#0E6E5C", ink: "#1A1917", tint: "#E3F0EB", border: "#B7D4CE", on: "#FFFFFF" },
   /* Re-picked off Dock's CAUTION for the same reason as `borderInput` above:
      `#A85A1E` reads as rust/brown on an actual screen, not as an amber
      "pending" caution — and this is the colour behind every "Under review"
@@ -221,7 +228,7 @@ const darkColors: ThemeColors = {
   brand: "#18806A",
   brandPressed: "#126957",
   onBrand: "#FFFFFF",
-  brandInk: "#5FC9AF",
+  brandInk: "#F2F0EC",
   brandTint: "#0F2721",
   brandOnDark: "#B7D4CE",
 
@@ -231,8 +238,9 @@ const darkColors: ThemeColors = {
   onGraphiteMuted: "#BFBAB1",
 
   scrim: "rgba(0,0,0,0.62)",
+  shadow: "#000000",
 
-  success: { base: "#18806A", ink: "#7FD3BE", tint: "#0F2721", border: "#145446", on: "#FFFFFF" },
+  success: { base: "#18806A", ink: "#F2F0EC", tint: "#0F2721", border: "#145446", on: "#FFFFFF" },
   /* Split from `warning.base`, unlike light mode: the brightened caution
      above is right for an icon on the dark ground but cannot carry white
      (Dock's own dark palette makes the same split). `borderStrong` is the

@@ -46,7 +46,7 @@ export function StatCard({
     <View style={styles.statCard}>
       {!!iconName && (
         <View style={styles.statIconBadge}>
-          <Icon name={iconName} size={18} color="#059669" />
+          <Icon name={iconName} size={18} color={colors.brand} />
         </View>
       )}
       <RNText style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
@@ -65,7 +65,9 @@ export default function HomeScreen() {
   const sheet = useSheet();
 
   const profile = useDriverStore((s) => s.profile);
-  const online = useDriverStore((s) => s.isOnline);
+  /* Online only once the server has said so this run — never from the copy
+     restored at launch. See `dutyConfirmed`. */
+  const online = useDriverStore((s) => s.isOnline && s.dutyConfirmed);
   const togglingDuty = useDriverStore((s) => s.togglingDuty);
   const dutyNote = useDriverStore((s) => s.dutyNote);
   const setOnline = useDriverStore((s) => s.setOnline);
@@ -349,52 +351,55 @@ export default function HomeScreen() {
     (permissionDenied ? "Location access needed" : "Locating…");
   const driverPlate = profile?.vehicle?.plate || profile?.driverId || "";
   const driverName = profile?.name || "Rider";
-  /* No fallback number: the backend has no rating field on a driver at all
-     today, so `profile?.rating` is never populated by anything real, and the
-     "5.0" this used to show for every single rider regardless of history was
-     not a default — it was fabricated on every load. `StatCard` below prints
-     "—" when this is null rather than inventing a number. */
-  const driverRating = typeof (profile as any)?.rating === "number" ? (profile as any).rating.toFixed(1) : null;
+  /* The diners' own stars: the server averages every rating given on this
+     rider's delivered orders (`riderRating.service`). No fallback number — the
+     "5.0" this once showed for every rider was fabricated. Until the first
+     rating it reads "New", which is what it is, rather than "—" or a zero
+     that would look like a bad score. */
+  const ratingAvg = profile?.rating?.avg;
+  const ratingCount = profile?.rating?.count ?? 0;
+  const driverRating = typeof ratingAvg === "number" && ratingCount > 0 ? ratingAvg.toFixed(1) : "New";
+  const ratingLabel = ratingCount > 0 ? `Rating (${ratingCount})` : "Rating";
 
   /* Color & Style Interpolations */
   const headerBgColor = dutyAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#f3f4f6", "#ecfdf5"],
+    outputRange: [colors.surfaceSunken, colors.brandTint],
   });
 
   const headerBadgeBg = dutyAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#e5e7eb", "#d1fae5"],
+    outputRange: [colors.border, colors.brandTint],
   });
 
   const headerBadgeText = dutyAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#4b5563", "#047857"],
+    outputRange: [colors.textSecondary, colors.textPrimary],
   });
 
   const heroTitleColor = dutyAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#374151", "#064e3b"],
+    outputRange: [colors.textPrimary, colors.textPrimary],
   });
 
   const heroEyebrowColor = dutyAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#6b7280", "#059669"],
+    outputRange: [colors.textSecondary, colors.textPrimary],
   });
 
   const dutyCardBg = dutyAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#ecfdf5", "#fef2f2"],
+    outputRange: [colors.brandTint, colors.danger.tint],
   });
 
   const dutyCardBorder = dutyAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#a7f3d0", "#fecaca"],
+    outputRange: [colors.success.border, colors.danger.border],
   });
 
   const dutyBtnText = dutyAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ["#047857", "#dc2626"],
+    outputRange: [colors.textPrimary, colors.danger.base],
   });
 
   return (
@@ -414,7 +419,7 @@ export default function HomeScreen() {
                 {driverName}
               </RNText>
               <Animated.View style={[styles.statusBadge, { backgroundColor: headerBadgeBg }]}>
-                <View style={[styles.statusDot, { backgroundColor: online ? "#059669" : "#6b7280" }]} />
+                <View style={[styles.statusDot, { backgroundColor: online ? colors.brand : colors.textTertiary }]} />
                 <Animated.Text style={[styles.statusBadgeText, { color: headerBadgeText }]}>
                   {online ? "Online" : "Offline"}
                 </Animated.Text>
@@ -438,7 +443,7 @@ export default function HomeScreen() {
             onPress={() => router.push("/settings")}
             style={styles.iconCircleBtn}
           >
-            <Icon name="settings" size={18} color="#1f2937" />
+            <Icon name="settings" size={18} color={colors.textPrimary} />
           </Pressable>
         </View>
       </Animated.View>
@@ -475,11 +480,11 @@ export default function HomeScreen() {
 
           {/* Top-Left Location Selector Pill */}
           <View style={styles.locationPill}>
-            <Icon name="mapPin" size={15} color="#1f2937" />
+            <Icon name="mapPin" size={15} color={colors.textPrimary} />
             <RNText style={styles.locationPillText} numberOfLines={1}>
               {driverCity}
             </RNText>
-            <Icon name="chevronDown" size={14} color="#6b7280" />
+            <Icon name="chevronDown" size={14} color={colors.textSecondary} />
           </View>
 
           {/* Top-Right "My Location" Button */}
@@ -488,7 +493,7 @@ export default function HomeScreen() {
             onPress={handleRecenter}
             style={({ pressed }) => [styles.myLocationBtn, pressed && styles.pressedBtn]}
           >
-            <Icon name="target" size={15} color="#1f2937" />
+            <Icon name="target" size={15} color={colors.textPrimary} />
             <RNText style={styles.myLocationText}>
               My Location
             </RNText>
@@ -501,7 +506,7 @@ export default function HomeScreen() {
               onPress={toggleLayers}
               style={({ pressed }) => [styles.stackBtn, pressed && styles.pressedBtn]}
             >
-              <Icon name="layers" size={18} color="#1f2937" />
+              <Icon name="layers" size={18} color={colors.textPrimary} />
               <RNText style={styles.stackLabel}>
                 Layers
               </RNText>
@@ -512,7 +517,7 @@ export default function HomeScreen() {
               onPress={() => (currentJob ? router.push("/active") : handleRecenter())}
               style={({ pressed }) => [styles.stackBtn, pressed && styles.pressedBtn]}
             >
-              <Icon name="navigate" size={18} color="#1f2937" />
+              <Icon name="navigate" size={18} color={colors.textPrimary} />
               <RNText style={styles.stackLabel}>
                 Navigate
               </RNText>
@@ -521,19 +526,18 @@ export default function HomeScreen() {
 
           {/* Bottom Center Status Pill */}
           <View style={styles.bottomStatusPill}>
-            <View style={[styles.statusDot, { backgroundColor: online ? "#059669" : "#9ca3af" }]} />
-            <RNText style={[styles.bottomStatusText, { color: online ? "#047857" : "#4b5563" }]}>
+            <View style={[styles.statusDot, { backgroundColor: online ? colors.brand : colors.textTertiary }]} />
+            <RNText style={[styles.bottomStatusText, { color: online ? colors.textPrimary : colors.textSecondary }]}>
               {online ? "WAITING FOR ORDERS..." : "YOU ARE OFFLINE"}
             </RNText>
           </View>
         </View>
 
-        {/* ── Stats Grid Cards (4 Cards) ──────────────────────────────── */}
+        {/* ── Stats Grid Cards (3 Cards) ──────────────────────────────── */}
         <View style={styles.statGrid}>
           <StatCard iconName="package" value={String(earnings.todayTrips)} label="Today's Orders" />
           <StatCard iconName="rupee" value={`₹${earnings.today}`} label="Today's Earnings" />
-          <StatCard iconName="clock" value={formatOnline(earnings.onlineMinutes)} label="Online Time" />
-          <StatCard iconName="star" value={driverRating ?? "—"} label="Rating" />
+          <StatCard iconName="star" value={driverRating} label={ratingLabel} />
         </View>
 
         {/* ── Active Delivery Card ────────────────────────────────────── */}
@@ -568,7 +572,7 @@ export default function HomeScreen() {
                     : " · prepaid"}
                 </RNText>
               </View>
-              <Icon name="chevronRight" size={18} color="#9ca3af" />
+              <Icon name="chevronRight" size={18} color={colors.textTertiary} />
             </View>
           </Pressable>
         )}
@@ -668,7 +672,7 @@ export default function HomeScreen() {
                   />
                 )}
                 <View style={[styles.dutyPowerCircle, online ? styles.powerCircleRed : styles.powerCircleGreen]}>
-                  <Icon name="power" size={20} color={online ? "#dc2626" : "#059669"} />
+                  <Icon name="power" size={20} color={online ? colors.danger.base : colors.brand} />
                 </View>
               </View>
 
@@ -731,7 +735,7 @@ export default function HomeScreen() {
             style={({ pressed }) => [styles.quickCard, pressed && styles.pressedBtn]}
           >
             <View style={styles.quickIconCircle}>
-              <Icon name="earnings" size={20} color="#059669" />
+              <Icon name="earnings" size={20} color={colors.brand} />
             </View>
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <RNText style={styles.quickTitle}>
@@ -741,7 +745,7 @@ export default function HomeScreen() {
                 View your earnings & trips
               </RNText>
             </View>
-            <Icon name="chevronRight" size={16} color="#9ca3af" />
+            <Icon name="chevronRight" size={16} color={colors.textTertiary} />
           </Pressable>
 
           <Pressable
@@ -750,7 +754,7 @@ export default function HomeScreen() {
             style={({ pressed }) => [styles.quickCard, pressed && styles.pressedBtn]}
           >
             <View style={styles.quickIconCircle}>
-              <Icon name="support" size={20} color="#059669" />
+              <Icon name="support" size={20} color={colors.brand} />
             </View>
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <RNText style={styles.quickTitle}>
@@ -760,7 +764,7 @@ export default function HomeScreen() {
                 Chat with Lampose support
               </RNText>
             </View>
-            <Icon name="chevronRight" size={16} color="#9ca3af" />
+            <Icon name="chevronRight" size={16} color={colors.textTertiary} />
           </Pressable>
         </View>
       </ScrollView>
@@ -772,7 +776,7 @@ export default function HomeScreen() {
             styles.fullScreenOverlay,
             {
               opacity: fullScreenOpacity,
-              backgroundColor: transitionOverlay.targetOnline ? "#047857" : "#111827",
+              backgroundColor: transitionOverlay.targetOnline ? colors.brand : colors.graphite,
             },
           ]}
         >
@@ -790,7 +794,7 @@ export default function HomeScreen() {
                 style={[
                   styles.overlayRadarRing,
                   {
-                    borderColor: transitionOverlay.targetOnline ? "#34d399" : "#6b7280",
+                    borderColor: transitionOverlay.targetOnline ? colors.brandOnDark : colors.borderInput,
                     opacity: transitionRadar.interpolate({
                       inputRange: [0, 1],
                       outputRange: [0.7, 0],
@@ -809,10 +813,10 @@ export default function HomeScreen() {
               <View
                 style={[
                   styles.overlayPowerIconBadge,
-                  { backgroundColor: transitionOverlay.targetOnline ? "#059669" : "#374151" },
+                  { backgroundColor: transitionOverlay.targetOnline ? colors.brand : colors.graphiteRaised },
                 ]}
               >
-                <Icon name="power" size={38} color="#ffffff" />
+                <Icon name="power" size={38} color={colors.onBrand} />
               </View>
             </View>
 
@@ -840,7 +844,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#f8faf9" },
+  root: { flex: 1, backgroundColor: colors.bg },
   content: {
     paddingHorizontal: layout.gutter,
     paddingTop: space[2],
@@ -870,11 +874,11 @@ const styles = StyleSheet.create({
   },
   driverNameText: {
     fontWeight: "700",
-    color: "#064e3b",
+    color: colors.textPrimary,
     fontSize: 16,
   },
   plateText: {
-    color: "#6b7280",
+    color: colors.textSecondary,
     fontSize: 12,
   },
   statusBadge: {
@@ -903,11 +907,11 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.border,
     ...elevation.card,
   },
 
@@ -933,7 +937,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   subtext: {
-    color: "#4b5563",
+    color: colors.textSecondary,
     fontSize: 13,
     marginTop: 4,
     lineHeight: 18,
@@ -946,7 +950,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.border,
     backgroundColor: colors.surface,
     ...elevation.card,
   },
@@ -957,19 +961,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.surface,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: "#f3f4f6",
+    borderColor: colors.borderSubtle,
     maxWidth: "58%",
     ...elevation.card,
   },
   locationPillText: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#1f2937",
+    color: colors.textPrimary,
     flex: 1,
   },
   myLocationBtn: {
@@ -979,18 +983,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.surface,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: "#f3f4f6",
+    borderColor: colors.borderSubtle,
     ...elevation.card,
   },
   myLocationText: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#1f2937",
+    color: colors.textPrimary,
   },
   floatingStack: {
     position: "absolute",
@@ -1002,19 +1006,19 @@ const styles = StyleSheet.create({
   stackBtn: {
     width: 60,
     height: 50,
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.surface,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#f3f4f6",
+    borderColor: colors.borderSubtle,
     paddingHorizontal: 2,
     ...elevation.card,
   },
   stackLabel: {
     fontSize: 10,
     fontWeight: "500",
-    color: "#4b5563",
+    color: colors.textSecondary,
     marginTop: 1,
     textAlign: "center",
   },
@@ -1025,12 +1029,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.surface,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.border,
     ...elevation.card,
   },
   bottomStatusText: {
@@ -1057,7 +1061,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: "#d1fae5",
+    backgroundColor: colors.brandTint,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 4,
@@ -1065,12 +1069,12 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 17,
     fontWeight: "800",
-    color: "#064e3b",
+    color: colors.textPrimary,
   },
   statLabel: {
     fontSize: 10.5,
     fontWeight: "600",
-    color: "#4b5563",
+    color: colors.textSecondary,
     textAlign: "center",
     marginTop: 2,
   },
@@ -1078,19 +1082,19 @@ const styles = StyleSheet.create({
   /* Active Card */
   activeCard: {
     borderWidth: 1,
-    borderColor: "#059669",
+    borderColor: colors.brand,
     borderRadius: 18,
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.surface,
     padding: space[4],
     gap: space[3],
     ...elevation.raised,
   },
   activeHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: space[2] },
-  activeOrderNum: { fontSize: 12, color: "#6b7280" },
+  activeOrderNum: { fontSize: 12, color: colors.textSecondary },
   activeBody: { flexDirection: "row", gap: space[3], alignItems: "center" },
-  activeStageText: { fontSize: 13, fontWeight: "700", color: "#059669" },
-  activeAddressText: { fontSize: 16, fontWeight: "700", color: "#1f2937" },
-  activeSubtext: { fontSize: 12, color: "#6b7280" },
+  activeStageText: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
+  activeAddressText: { fontSize: 16, fontWeight: "700", color: colors.textPrimary },
+  activeSubtext: { fontSize: 12, color: colors.textSecondary },
 
   /* Duty Action Button */
   dutyCard: {
@@ -1108,8 +1112,8 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: radius.pill,
     borderWidth: 1.5,
-    backgroundColor: "#ffffff",
-    borderColor: "#e5e7eb",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
   },
   powerCircleWrapper: {
     position: "relative",
@@ -1121,7 +1125,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#059669",
+    backgroundColor: colors.brand,
   },
   dutyPowerCircle: {
     width: 32,
@@ -1131,10 +1135,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   powerCircleGreen: {
-    backgroundColor: "#d1fae5",
+    backgroundColor: colors.brandTint,
   },
   powerCircleRed: {
-    backgroundColor: "#fee2e2",
+    backgroundColor: colors.danger.tint,
   },
   dutyBtnText: {
     fontSize: 17,
@@ -1143,7 +1147,7 @@ const styles = StyleSheet.create({
   dutySubtext: {
     textAlign: "center",
     marginTop: space[2],
-    color: "#6b7280",
+    color: colors.textSecondary,
     fontSize: 12,
     fontWeight: "500",
   },
@@ -1153,11 +1157,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#d1fae5",
+    backgroundColor: colors.brandTint,
     borderRadius: 20,
     padding: space[4],
     borderWidth: 1,
-    borderColor: "#a7f3d0",
+    borderColor: colors.success.border,
   },
   promoTextCol: {
     flex: 1,
@@ -1166,12 +1170,12 @@ const styles = StyleSheet.create({
   promoTitle: {
     fontSize: 18,
     fontWeight: "800",
-    color: "#064e3b",
+    color: colors.textPrimary,
     lineHeight: 22,
   },
   promoSub: {
     fontSize: 12,
-    color: "#047857",
+    color: colors.textPrimary,
     marginTop: 4,
   },
   pageDots: {
@@ -1183,11 +1187,11 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#a7f3d0",
+    backgroundColor: colors.success.border,
   },
   activeDot: {
     width: 14,
-    backgroundColor: "#059669",
+    backgroundColor: colors.brand,
   },
 
   /* Quick Shortcuts Grid (Transparent Seamless Items) */
@@ -1209,18 +1213,18 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "#d1fae5",
+    backgroundColor: colors.brandTint,
     alignItems: "center",
     justifyContent: "center",
   },
   quickTitle: {
     fontWeight: "700",
-    color: "#1f2937",
+    color: colors.textPrimary,
     fontSize: 14,
   },
   quickSubtext: {
     fontSize: 11,
-    color: "#6b7280",
+    color: colors.textSecondary,
   },
 
   /* Full Screen Duty Overlay */
@@ -1260,7 +1264,7 @@ const styles = StyleSheet.create({
     borderRadius: 38,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 10,
@@ -1269,13 +1273,13 @@ const styles = StyleSheet.create({
   overlayTitleText: {
     fontSize: 28,
     fontWeight: "900",
-    color: "#ffffff",
+    color: colors.onBrand,
     textAlign: "center",
     letterSpacing: -0.5,
   },
   overlaySubtext: {
     fontSize: 14,
-    color: "#e5e7eb",
+    color: colors.onGraphiteMuted,
     textAlign: "center",
     marginTop: 8,
     lineHeight: 20,

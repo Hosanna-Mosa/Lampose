@@ -10,7 +10,7 @@ import { useSheet } from "@/hooks/useSheet";
 import { useWallet } from "@/hooks/useWallet";
 import { useDriverStore } from "@/store/driverStore";
 import { useFlowStore } from "@/store/flowStore";
-import { layout, radius, space } from "@/theme";
+import { colors, layout, radius, space } from "@/theme";
 
 export default function EarningsScreen() {
   const insets = useSafeAreaInsets();
@@ -139,7 +139,7 @@ export default function EarningsScreen() {
           <RNText style={styles.periodEyebrow}>{data.label}</RNText>
           <RNText style={styles.heroTotalText}>{data.total}</RNText>
           <View style={styles.deltaBadge}>
-            <Icon name="trendingUp" size={14} color="#059669" />
+            <Icon name="trendingUp" size={14} color={colors.brand} />
             <RNText style={styles.deltaText}>{data.delta}</RNText>
           </View>
 
@@ -156,7 +156,7 @@ export default function EarningsScreen() {
                           styles.barFill,
                           {
                             height: Math.max(6, Math.round(height * 88)),
-                            backgroundColor: isCurrent ? "#059669" : "#a7f3d0",
+                            backgroundColor: isCurrent ? colors.brand : colors.success.border,
                           },
                         ]}
                       />
@@ -205,7 +205,7 @@ export default function EarningsScreen() {
         <View style={styles.infoSection}>
           <View style={styles.infoHead}>
             <View style={styles.infoIconCircle}>
-              <Icon name="bank" size={18} color="#059669" />
+              <Icon name="bank" size={18} color={colors.brand} />
             </View>
             <RNText style={styles.infoTitle}>Getting paid</RNText>
           </View>
@@ -224,7 +224,7 @@ export default function EarningsScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#FFFFFF" },
+  root: { flex: 1, backgroundColor: colors.surface },
 
   loadingContent: {
     padding: layout.gutter,
@@ -238,12 +238,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: layout.gutter,
     paddingBottom: space[3],
     borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
+    borderBottomColor: colors.border,
   },
   pageTitle: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#064e3b",
+    color: colors.textPrimary,
     marginBottom: space[2],
   },
   segWrap: {
@@ -264,33 +264,33 @@ const styles = StyleSheet.create({
   periodEyebrow: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#059669",
+    color: colors.textPrimary,
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
   heroTotalText: {
     fontSize: 34,
     fontWeight: "900",
-    color: "#064e3b",
+    color: colors.textPrimary,
     marginTop: space[1],
   },
   deltaBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "#f3f4f6",
+    backgroundColor: colors.surfaceSunken,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: radius.pill,
     alignSelf: "flex-start",
     marginTop: 6,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.border,
   },
   deltaText: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#047857",
+    color: colors.textPrimary,
   },
 
   /* Chart */
@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
     gap: space[2],
     paddingTop: space[3],
     borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
+    borderTopColor: colors.border,
   },
   chartCol: {
     flex: 1,
@@ -313,7 +313,7 @@ const styles = StyleSheet.create({
   barTrack: {
     height: 88,
     width: 14,
-    backgroundColor: "#e5e7eb",
+    backgroundColor: colors.surfaceSunken,
     borderRadius: 7,
     justifyContent: "flex-end",
     overflow: "hidden",
@@ -325,10 +325,10 @@ const styles = StyleSheet.create({
   barLabel: {
     fontSize: 11,
     fontWeight: "500",
-    color: "#9ca3af",
+    color: colors.textTertiary,
   },
   barLabelActive: {
-    color: "#059669",
+    color: colors.textPrimary,
     fontWeight: "700",
   },
 
@@ -340,7 +340,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.border,
   },
   statItem: {
     flex: 1,
@@ -349,18 +349,18 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#6b7280",
+    color: colors.textSecondary,
     marginBottom: 2,
   },
   statVal: {
     fontSize: 18,
     fontWeight: "800",
-    color: "#064e3b",
+    color: colors.textPrimary,
   },
   statDivider: {
     width: 1,
     height: 28,
-    backgroundColor: "#e5e7eb",
+    backgroundColor: colors.surfaceSunken,
   },
 
   /* Unboxed Breakdown Section */
@@ -370,7 +370,7 @@ const styles = StyleSheet.create({
   sectionHeaderTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#059669",
+    color: colors.textPrimary,
     letterSpacing: 0.5,
     textTransform: "uppercase",
     marginBottom: space[2],
@@ -384,17 +384,17 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
+    borderBottomColor: colors.border,
   },
   ledgerLabel: {
     fontSize: 14.5,
-    color: "#374151",
+    color: colors.textPrimary,
     fontWeight: "500",
   },
   ledgerValue: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#111827",
+    color: colors.textPrimary,
   },
   totalRow: {
     flexDirection: "row",
@@ -403,17 +403,17 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     marginTop: 4,
     borderTopWidth: 1.5,
-    borderTopColor: "#e5e7eb",
+    borderTopColor: colors.border,
   },
   totalLabel: {
     fontSize: 16,
     fontWeight: "800",
-    color: "#111827",
+    color: colors.textPrimary,
   },
   totalValue: {
     fontSize: 22,
     fontWeight: "900",
-    color: "#064e3b",
+    color: colors.textPrimary,
   },
 
   /* Unboxed Info Section */
@@ -431,20 +431,20 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#f3f4f6",
+    backgroundColor: colors.surfaceSunken,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.border,
   },
   infoTitle: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#1f2937",
+    color: colors.textPrimary,
   },
   infoBody: {
     fontSize: 12.5,
-    color: "#6b7280",
+    color: colors.textSecondary,
     lineHeight: 19,
   },
 });

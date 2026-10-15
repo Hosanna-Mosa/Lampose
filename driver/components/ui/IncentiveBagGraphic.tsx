@@ -1,6 +1,7 @@
 import React from "react";
 import { Image, StyleSheet, View } from "react-native";
 import { Text } from "./Text";
+import { colors } from "@/theme";
 
 /**
  * Incentive Bag Graphic using 3D real delivery bag & growth chart transparent PNG asset:
@@ -34,7 +35,7 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   badge: {
-    backgroundColor: "#064e3b",
+    backgroundColor: colors.brand,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -42,7 +43,7 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   badgeText: {
-    color: "#ffffff",
+    color: colors.onBrand,
     fontSize: 9,
     fontWeight: "700",
     textAlign: "center",
