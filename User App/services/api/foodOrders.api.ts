@@ -139,7 +139,12 @@ export type ServerFoodOrder = {
    * staff) or `driver` (one the kitchen arranged). Absent or anything else
    * means a Lampose rider, whose PIN closes the order at the door.
    */
-  delivery?: { method?: string | null } | null;
+  delivery?: {
+    method?: string | null;
+    /** This diner's own rating of the rider, once given. Null `ratedAt`
+        means not rated yet. */
+    rating?: { stars?: number | null; comment?: string; ratedAt?: string | null } | null;
+  } | null;
   lines: ServerOrderLine[];
   itemsTotal: number;
   /** The kitchen's packaging fee, as billed, and its 18% GST. */
@@ -328,6 +333,24 @@ export async function fetchFoodOrder(orderNumber: string): Promise<ServerFoodOrd
  */
 export async function confirmFoodDelivery(orderNumber: string): Promise<ServerFoodOrder | null> {
   const res = await api.patch<Envelope<ServerFoodOrder>>(endpoints.foodOrderDelivered(orderNumber), {});
+  return res?.data ?? null;
+}
+
+/**
+ * Rate the Lampose rider who delivered this order, 1–5 stars, with an
+ * optional comment. Once per order, within a week of delivery; the server
+ * refuses (in its own words) a second rating, an undelivered order and one
+ * the restaurant delivered itself.
+ */
+export async function rateFoodRider(
+  orderNumber: string,
+  stars: number,
+  comment: string,
+): Promise<ServerFoodOrder | null> {
+  const res = await api.post<Envelope<ServerFoodOrder>>(endpoints.foodOrderRiderRating(orderNumber), {
+    stars,
+    comment,
+  });
   return res?.data ?? null;
 }
 

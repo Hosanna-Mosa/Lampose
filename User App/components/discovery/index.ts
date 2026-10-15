@@ -56,6 +56,7 @@ export { CategoryGlassBar, type CategoryGlassBarProps } from './CategoryGlassBar
 export {
   ListingCard,
   ListingCardSkeleton,
+  ListingFeedSkeleton,
   AvailabilityChip,
   type ListingCardProps,
   type ListingCardVariant,

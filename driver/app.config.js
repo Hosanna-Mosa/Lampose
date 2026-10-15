@@ -5,6 +5,24 @@ const path = require('path');
 const googleServicesPath = path.join(__dirname, 'google-services.json');
 const googleServicesFile = fs.existsSync(googleServicesPath) ? './google-services.json' : undefined;
 
+/*
+ * The API URL comes from the environment only: `.env` locally, and on EAS the
+ * project's environment variables, picked per build profile by `environment`
+ * in eas.json. Nothing in the repo holds it.
+ *
+ * It is baked into the bundle at build time, so a build made without it is a
+ * rider app that cannot reach anything — and it would only show at sign-in.
+ * On an EAS build worker (`EAS_BUILD_PROFILE` is set there) that fails the
+ * build instead, naming the variable.
+ */
+if (process.env.EAS_BUILD_PROFILE && !process.env.EXPO_PUBLIC_API_URL) {
+  throw new Error(
+    `EXPO_PUBLIC_API_URL is not set for the "${process.env.EAS_BUILD_PROFILE}" build. ` +
+      'Add it to that EAS environment: eas env:create --name EXPO_PUBLIC_API_URL ' +
+      '--value https://… --environment <development|preview|production> --visibility plaintext',
+  );
+}
+
 /**
  * Brand colours — keep in sync with `theme/index.ts`.
  *

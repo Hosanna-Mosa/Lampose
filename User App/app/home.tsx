@@ -13,7 +13,6 @@ import React, {
 } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   InteractionManager,
   Keyboard,
   Modal,
@@ -24,17 +23,18 @@ import {
   View,
   useWindowDimensions,
   type ListRenderItemInfo,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
 } from 'react-native';
 import Animated, {
   Easing,
   interpolate,
+  runOnJS,
+  useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { createValueStore, type ValueStore } from '@/utils/valueStore';
 
 import {
   Button, Icon, OfflineBanner, SearchField, Snackbar, Text, useAlert,
@@ -51,7 +51,7 @@ import {
   FilterSheet,
   type FilterChip,
   ListingCard,
-  ListingCardSkeleton,
+  ListingFeedSkeleton,
   QuickFilterDropdown,
   SavedRow,
   type SavedEntry,
@@ -135,6 +135,16 @@ const TABS: readonly TabItem[] = [
  * Food tab almost always finds it already built.
  */
 const FOOD_WARM_UP_MS = 1200;
+
+/**
+ * How long a category switch holds its skeleton once the screen has settled,
+ * before a cached feed's cards replace it. Long enough to read as a loading
+ * step rather than a flicker; a feed still on the network holds it longer.
+ */
+const CATEGORY_SKELETON_MS = 260;
+
+/** The side move between the stay page and the Food page. */
+const PAGE_SLIDE_MS = 340;
 
 /**
  * And what the bar becomes once Food is open.
@@ -223,7 +233,7 @@ export default function Home() {
    * they pad their content by, because there is no longer a bar in the column
    * holding the last card clear of the bottom edge.
    */
-  const { onScroll: barScroll, height: barHeight, showBar } = useBottomBar();
+  const { onScroll: barScroll, onScrollY: barScrollY, height: barHeight, showBar } = useBottomBar();
   /* The bottom bar belongs to this screen, so while Food is open this screen is
      the one that has to know which of the module's screens is showing. */
   const { foodTab, setFoodTab, liveOrder, foodUnread, count: cartCount } = useFood();
@@ -421,6 +431,49 @@ export default function Home() {
     pageSize: feedPageSize,
     enabled: Boolean(category),
   });
+
+  /*
+   * The pull-to-refresh spinner shows for a PULL, and only for one.
+   *
+   * It used to follow `isFetching`, so switching to a category whose cached
+   * feed was over a minute old refreshed it in the background AND dropped the
+   * spinner in over the top of the feed — on iOS pushing the whole list down
+   * and snapping it back a moment later, right after the tap. The cached feed
+   * is already on screen; a quiet refresh behind it needs no spinner.
+   */
+  /*
+   * A category switch shows the skeleton first, then the cards.
+   *
+   * `feedCategory` is the category whose cards are on screen. It trails
+   * `category`, and while the two differ the feed draws its skeleton — in the
+   * very render the switch lands in, which mounts nothing heavy, so that
+   * render stays cheap however much is cached. The cards follow once the
+   * screen has settled (the new street building, the bubble's last frames)
+   * and `CATEGORY_SKELETON_MS` has passed, so the skeleton reads as a step
+   * rather than a one-frame flicker; and if the feed is still on its way by
+   * then, `feedLoading` keeps the skeleton up until it arrives.
+   */
+  const [feedCategory, setFeedCategory] = useState(category);
+  const switchingCategory = category !== feedCategory;
+  useEffect(() => {
+    if (!switchingCategory) return undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const task = InteractionManager.runAfterInteractions(() => {
+      timer = setTimeout(() => startTransition(() => setFeedCategory(category)), CATEGORY_SKELETON_MS);
+    });
+    return () => {
+      task.cancel();
+      if (timer) clearTimeout(timer);
+    };
+  }, [switchingCategory, category]);
+  /** The feed's loading state: a switch settling, or the feed not here yet. */
+  const feedSkeleton = switchingCategory || feedLoading;
+
+  const [feedPulled, setFeedPulled] = useState(false);
+  const pullFeed = useCallback(() => {
+    setFeedPulled(true);
+    void refetchFeed().finally(() => setFeedPulled(false));
+  }, [refetchFeed]);
 
   /* The category counts, so the "nothing in this category" state can say how
      much is in the other three. Without it that screen either states a made-up
@@ -829,10 +882,28 @@ export default function Home() {
       headingTo.current = target;
       pagePosition.value = reduceMotion
         ? target
-        : withTiming(target, { duration: 340, easing: Easing.out(Easing.cubic) });
+        : withTiming(target, { duration: PAGE_SLIDE_MS, easing: Easing.out(Easing.cubic) });
     },
     [reduceMotion, pagePosition],
   );
+  /*
+   * The stay page's loops stop while Food covers it.
+   *
+   * It stays mounted, parked a screen-width off to the left, so the way back
+   * is instant — and nothing told its street, glows and traffic that nobody
+   * could see them, so all of it kept animating behind every food screen.
+   * Paused once the slide has finished, so the scene never freezes in plain
+   * sight on its way out; resumed at once, so it is moving as it slides back.
+   */
+  const [stayParked, setStayParked] = useState(pageTarget === 1);
+  useEffect(() => {
+    if (pageTarget === 0) {
+      setStayParked(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setStayParked(true), reduceMotion ? 0 : PAGE_SLIDE_MS);
+    return () => clearTimeout(timer);
+  }, [pageTarget, reduceMotion]);
   /* Every other way the module changes — a deep link, a screen calling
      `setTab`, Food finishing its build while you wait — gets the same move. */
   useLayoutEffect(() => {
@@ -1004,17 +1075,39 @@ export default function Home() {
   const stickyThreshold = Math.max(60, heroDockY - insets.top - 4);
 
   const scrollY = useSharedValue(0);
-  const [isScrolledPastHero, setIsScrolledPastHero] = useState(false);
+  /*
+   * Whether the feed has scrolled past the hero: the docked header takes
+   * touches, and the hero's street stops.
+   *
+   * A store rather than this screen's state. It flips every time the thumb
+   * crosses the line, and as state each flip re-rendered all of Home — the
+   * feed, the header, the bar — to change one `pointerEvents` and one pause.
+   * Now only `HeroMotionGate` and `DockedHeader` hear it.
+   */
+  const [pastHeroStore] = useState(() => createValueStore(false));
+  const pastHero = useSharedValue(false);
+  const setPastHero = pastHeroStore.set;
 
-  const handleScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      barScroll(event);
-      const y = event.nativeEvent.contentOffset.y;
+  /*
+   * The feed's scroll, read on the UI thread.
+   *
+   * It ran on the JS thread sixty times a second: the bar's gesture, the
+   * docked header's fade and the dock check all waited on a thread that a tap
+   * may have busy with a render, so the header's fade could trail the thumb.
+   * Here none of it touches JS, except the dock flag, once per crossing.
+   */
+  const handleScroll = useAnimatedScrollHandler(
+    (event) => {
+      const y = event.contentOffset.y;
+      barScrollY(y);
       scrollY.value = y;
       const shouldDock = y >= stickyThreshold;
-      setIsScrolledPastHero((prev) => (prev !== shouldDock ? shouldDock : prev));
+      if (shouldDock !== pastHero.value) {
+        pastHero.value = shouldDock;
+        runOnJS(setPastHero)(shouldDock);
+      }
     },
-    [barScroll, scrollY, stickyThreshold],
+    [barScrollY, stickyThreshold, setPastHero],
   );
 
   const dockedHeaderAnimatedStyle = useAnimatedStyle(() => {
@@ -1109,6 +1202,8 @@ export default function Home() {
         accessibilityElementsHidden={!stayInView}
         importantForAccessibility={stayInView ? 'auto' : 'no-hide-descendants'}
       >
+      {/* Frozen while parked behind Food — see `stayParked`. */}
+      <AmbientMotionProvider paused={stayParked}>
       {pageTab === 'explore' || (pageTab === 'food' && inFoodHome) ? null : header}
 
       {/* Persistent, and it always states the age of what is on screen — a
@@ -1120,7 +1215,8 @@ export default function Home() {
       {pageTab === 'explore' ? (
         <View style={{ flex: 1 }}>
           {/* Docked Sticky Header: stays pinned at the very top of the screen when scrolling through listings */}
-          <Animated.View
+          <DockedHeader
+            pastHeroStore={pastHeroStore}
             style={[
               styles.dockedHeader,
               {
@@ -1130,7 +1226,6 @@ export default function Home() {
               },
               dockedHeaderAnimatedStyle,
             ]}
-            pointerEvents={isScrolledPastHero ? 'auto' : 'none'}
           >
             <View style={{ paddingHorizontal: layout.gutter, paddingBottom: 6 }}>
               <AirbnbSearchBar {...searchBarProps} />
@@ -1143,10 +1238,10 @@ export default function Home() {
                 <CategoryGlassBar value={category} onChange={setCategory} style={{ borderColor: colors.border }} />
               </View>
             ) : null}
-          </Animated.View>
+          </DockedHeader>
 
-          <FlatList
-            data={feedLoading || feedError || total === 0 ? EMPTY_FEED : shown}
+          <Animated.FlatList
+            data={feedSkeleton || feedError || total === 0 ? EMPTY_FEED : shown}
             keyExtractor={feedKey}
             renderItem={renderFeedItem}
             extraData={isSaved}
@@ -1179,8 +1274,8 @@ export default function Home() {
             }
             refreshControl={
               <RefreshControl
-                refreshing={feedFetching && !feedLoading && !feedFetchingMore}
-                onRefresh={() => refetchFeed()}
+                refreshing={feedPulled}
+                onRefresh={pullFeed}
                 tintColor={colors.brand}
               />
             }
@@ -1189,7 +1284,7 @@ export default function Home() {
                 {/* The light glass hero: locality, greeting, search and the
                     category bar with its moving bubble. Its street scene stops
                     once it has scrolled out of sight. */}
-                <AmbientMotionProvider paused={isScrolledPastHero}>
+                <HeroMotionGate pastHeroStore={pastHeroStore}>
                   <StayHeroSection
                     locality={headerLocality}
                     city={headerCity}
@@ -1205,7 +1300,7 @@ export default function Home() {
                     onChangeCategory={setCategory}
                     onDockPoint={setHeroDockY}
                   />
-                </AmbientMotionProvider>
+                </HeroMotionGate>
 
                 {/* Filter Chips Bar */}
                 <FilterChipRow
@@ -1217,7 +1312,7 @@ export default function Home() {
                   activeDropdownId={activeDropdown}
                 />
 
-                {!feedLoading && !feedError && total > 0 && (canWiden || (wholeCity && locality)) ? (
+                {!feedSkeleton && !feedError && total > 0 && (canWiden || (wholeCity && locality)) ? (
                   <View style={{ paddingHorizontal: layout.gutter }}>
                     {canWiden ? (
                       <Button
@@ -1240,12 +1335,14 @@ export default function Home() {
             }
             ListEmptyComponent={
               <>
-                {feedLoading ? (
-                  <View style={{ paddingHorizontal: layout.gutter, gap: space[4] }}>
-                    {[0, 1, 2].map((key) => (
-                      <ListingCardSkeleton key={key} variant="list" />
-                    ))}
-                  </View>
+                {feedSkeleton ? (
+                  /* The feed's own gap and gutter, so each skeleton sits
+                     exactly where its card will. */
+                  <ListingFeedSkeleton
+                    count={3}
+                    gap={space[4]}
+                    style={{ paddingHorizontal: layout.gutter }}
+                  />
                 ) : feedError ? (
                   <View style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
                     <Text variant="title2">We could not load places</Text>
@@ -1719,6 +1816,7 @@ export default function Home() {
 
         </ScrollView>
       )}
+      </AmbientMotionProvider>
       </Animated.View>
 
       {/*
@@ -2015,5 +2113,45 @@ function ModuleTabBar({
          strip. The door in the bar stays. */
       hideEdgeTab={inFood ? foodStrip : stayStrip}
     />
+  );
+}
+
+/* ── What hears the scroll crossing the hero ────────────────────────────── */
+
+/**
+ * The hero's loops, paused once the feed has scrolled past it. Subscribed to
+ * `pastHeroStore` itself, so a crossing re-renders this gate and the loops
+ * under it — not Home.
+ */
+function HeroMotionGate({
+  pastHeroStore,
+  children,
+}: {
+  pastHeroStore: ValueStore<boolean>;
+  children: React.ReactNode;
+}) {
+  const pastHero = useSyncExternalStore(pastHeroStore.subscribe, pastHeroStore.get, pastHeroStore.get);
+  return <AmbientMotionProvider paused={pastHero}>{children}</AmbientMotionProvider>;
+}
+
+/**
+ * The docked copy of the search bar and categories. It fades in on the UI
+ * thread with the scroll; it takes touches only once the feed is past the
+ * hero, read from the same store as `HeroMotionGate`.
+ */
+function DockedHeader({
+  pastHeroStore,
+  style,
+  children,
+}: {
+  pastHeroStore: ValueStore<boolean>;
+  style: React.ComponentProps<typeof Animated.View>['style'];
+  children: React.ReactNode;
+}) {
+  const pastHero = useSyncExternalStore(pastHeroStore.subscribe, pastHeroStore.get, pastHeroStore.get);
+  return (
+    <Animated.View style={style} pointerEvents={pastHero ? 'auto' : 'none'}>
+      {children}
+    </Animated.View>
   );
 }

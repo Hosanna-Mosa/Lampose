@@ -270,6 +270,9 @@ export const endpoints = {
       rider's delivery is closed by the PIN at the door instead. */
   foodOrderDelivered: (orderNumber: string) =>
     `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}/delivered`,
+  /** The diner's 1–5 stars for the Lampose rider who delivered it. Once. */
+  foodOrderRiderRating: (orderNumber: string) =>
+    `${V2}/food-partners/orders/${encodeURIComponent(orderNumber)}/rider-rating`,
 
   /**
    * Paying for an order, in two calls.

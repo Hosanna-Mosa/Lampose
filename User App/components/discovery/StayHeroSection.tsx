@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useDeferredValue, useEffect, useMemo } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef } from 'react';
 import { Platform, Pressable, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import Animated, {
   cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -296,19 +297,33 @@ function Glow({
 }) {
   const t = useSharedValue(0.5);
   const paused = useAmbientPaused();
+  /* Whether the drift has begun, so a resume can tell itself from a start. */
+  const started = useRef(false);
 
   useEffect(() => {
     if (still) {
       cancelAnimation(t);
       t.value = 0.5;
+      started.current = false;
       return;
     }
     if (paused) {
       cancelAnimation(t);
       return;
     }
-    t.value = 0;
-    t.value = withRepeat(withTiming(1, { duration, easing: easing.inOut }), -1, true);
+    if (started.current) {
+      /* Resumed: carry on from where it froze, rather than jumping back to
+         the start of the swing — which, on the screen, was a visible snap. */
+      const from = t.value;
+      t.value = withSequence(
+        withTiming(1, { duration: Math.max(0, 1 - from) * duration, easing: easing.inOut }),
+        withRepeat(withTiming(0, { duration, easing: easing.inOut }), -1, true),
+      );
+    } else {
+      started.current = true;
+      t.value = 0;
+      t.value = withRepeat(withTiming(1, { duration, easing: easing.inOut }), -1, true);
+    }
     return () => cancelAnimation(t);
   }, [still, paused, duration, t]);
 

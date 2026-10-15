@@ -13,7 +13,7 @@ import {
 } from "@/services/wallet";
 import { useDriverStore } from "@/store/driverStore";
 import { useFlowStore } from "@/store/flowStore";
-import { radius, space } from "@/theme";
+import { colors, radius, space } from "@/theme";
 
 /** From this share of the cash limit, the rider is warned it is coming. */
 const WARN_AT = 0.8;
@@ -109,7 +109,7 @@ export function WalletPanel({
       <View style={styles.cards}>
         <View style={[styles.card, styles.walletCard]}>
           <View style={styles.cardHead}>
-            <Icon name="earnings" size={15} color="#047857" />
+            <Icon name="earnings" size={15} color={colors.brand} />
             <RNText style={styles.cardLabel}>Wallet</RNText>
           </View>
           <RNText style={styles.amount}>{paiseToRupees(wallet.walletPaise)}</RNText>
@@ -118,10 +118,10 @@ export function WalletPanel({
 
         <View style={[styles.card, wallet.codBlocked ? styles.blockedCard : owes > 0 ? styles.owedCard : styles.clearCard]}>
           <View style={styles.cardHead}>
-            <Icon name="rupee" size={15} color={wallet.codBlocked ? "#b91c1c" : "#b45309"} />
+            <Icon name="rupee" size={15} color={wallet.codBlocked ? colors.danger.base : colors.warning.base} />
             <RNText style={styles.cardLabel}>Outstanding</RNText>
           </View>
-          <RNText style={[styles.amount, owes > 0 && { color: wallet.codBlocked ? "#b91c1c" : "#92400e" }]}>
+          <RNText style={[styles.amount, owes > 0 && { color: wallet.codBlocked ? colors.danger.ink : colors.warning.ink }]}>
             {paiseToRupees(owes)}
           </RNText>
           <RNText style={styles.cardHint}>You owe Lampose</RNText>
@@ -132,7 +132,7 @@ export function WalletPanel({
                   styles.fill,
                   {
                     width: `${Math.min(100, Math.round(share * 100))}%`,
-                    backgroundColor: wallet.codBlocked ? "#dc2626" : share >= WARN_AT ? "#f59e0b" : "#10b981",
+                    backgroundColor: wallet.codBlocked ? colors.danger.base : share >= WARN_AT ? colors.warning.base : colors.brand,
                   },
                 ]}
               />
@@ -202,7 +202,7 @@ export function WalletPanel({
 
       <Pressable onPress={() => router.push("/wallet")} style={styles.historyLink} hitSlop={8}>
         <RNText style={styles.historyText}>See wallet history</RNText>
-        <Icon name="chevronRight" size={16} color="#059669" />
+        <Icon name="chevronRight" size={16} color={colors.brand} />
       </Pressable>
 
       <Sheet spec={confirmSpec} visible={confirm} onPrimary={withdraw} onDismiss={() => setConfirm(false)} />
@@ -220,17 +220,17 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 14,
   },
-  walletCard: { backgroundColor: "#ecfdf5", borderColor: "#a7f3d0" },
-  clearCard: { backgroundColor: "#f9fafb", borderColor: "#e5e7eb" },
-  owedCard: { backgroundColor: "#fffbeb", borderColor: "#fde68a" },
-  blockedCard: { backgroundColor: "#fef2f2", borderColor: "#fecaca" },
+  walletCard: { backgroundColor: colors.brandTint, borderColor: colors.success.border },
+  clearCard: { backgroundColor: colors.bg, borderColor: colors.border },
+  owedCard: { backgroundColor: colors.warning.tint, borderColor: colors.warning.border },
+  blockedCard: { backgroundColor: colors.danger.tint, borderColor: colors.danger.border },
   cardHead: { flexDirection: "row", alignItems: "center", gap: 6 },
-  cardLabel: { fontSize: 12, fontWeight: "700", color: "#374151", textTransform: "uppercase", letterSpacing: 0.4 },
-  amount: { fontSize: 24, fontWeight: "900", color: "#064e3b", marginTop: 6 },
-  cardHint: { fontSize: 11.5, color: "#6b7280", marginTop: 2 },
+  cardLabel: { fontSize: 12, fontWeight: "700", color: colors.textPrimary, textTransform: "uppercase", letterSpacing: 0.4 },
+  amount: { fontSize: 24, fontWeight: "900", color: colors.textPrimary, marginTop: 6 },
+  cardHint: { fontSize: 11.5, color: colors.textSecondary, marginTop: 2 },
   track: {
     height: 6,
-    backgroundColor: "#e5e7eb",
+    backgroundColor: colors.surfaceSunken,
     borderRadius: radius.pill,
     marginTop: 10,
     overflow: "hidden",
@@ -238,7 +238,7 @@ const styles = StyleSheet.create({
   fill: { height: "100%", borderRadius: radius.pill },
   actions: { flexDirection: "row", gap: space[2] },
   action: { flex: 1 },
-  small: { fontSize: 12, color: "#6b7280", textAlign: "center" },
+  small: { fontSize: 12, color: colors.textSecondary, textAlign: "center" },
   historyLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 4 },
-  historyText: { fontSize: 13.5, fontWeight: "700", color: "#059669" },
+  historyText: { fontSize: 13.5, fontWeight: "700", color: colors.textPrimary },
 });

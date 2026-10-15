@@ -1,6 +1,7 @@
 import React from "react";
 import { Image, StyleSheet, Text as RNText, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
+import { colors } from "@/theme";
 
 /**
  * Scooter Rider Graphic using 3D real scooter rider transparent PNG asset:
@@ -24,7 +25,7 @@ export function ScooterRiderGraphic() {
           <Svg width={26} height={32} viewBox="0 0 24 32" fill="none">
             <Path
               d="M12 0C5.37 0 0 5.37 0 12C0 21 12 32 12 32C12 32 24 21 24 12C24 5.37 18.63 0 12 0ZM12 16C9.79 16 8 14.21 8 12C8 9.79 9.79 8 12 8C14.21 8 16 9.79 16 12C16 14.21 14.21 16 12 16Z"
-              fill="#059669"
+              fill={colors.brand}
             />
           </Svg>
         </View>
@@ -49,13 +50,13 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   speechBubble: {
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.surface,
     paddingHorizontal: 11,
     paddingVertical: 6,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
-    shadowColor: "#000",
+    borderColor: colors.border,
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 4,
@@ -67,7 +68,7 @@ const styles = StyleSheet.create({
   speechText: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#1f2937",
+    color: colors.textPrimary,
     fontFamily: "System",
   },
   bubbleTail: {
@@ -83,7 +84,7 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     borderLeftColor: "transparent",
     borderRightColor: "transparent",
-    borderTopColor: "#ffffff",
+    borderTopColor: colors.surface,
   },
   graphicWrapper: {
     width: 140,

@@ -15,6 +15,7 @@ import {
   FOOD_ORDERS_PAGE,
   placeFoodOrder,
   quoteFoodOrder,
+  rateFoodRider,
   type PlaceOrderLine,
   startFoodPayment,
   switchFoodOrderToCash,
@@ -279,6 +280,8 @@ export type FoodContextValue = {
   payOrderInCash: (id: string) => Promise<void>;
   /** Close a restaurant-delivered order: "it reached me". See `confirmFoodDelivery`. */
   confirmDelivered: (id: string) => Promise<void>;
+  /** Rate the Lampose rider who delivered it, 1–5 stars. Throws the server's refusal. */
+  rateRider: (id: string, stars: number, comment: string) => Promise<void>;
 
   /*
    * — order-status notifications —
@@ -1225,6 +1228,10 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
     dropLocation: coordinatesOf(row.dropLocation),
     /* The server's own test (`restaurantArrangedDelivery`). */
     restaurantDelivers: !isPickup && ['self', 'driver'].includes(row.delivery?.method ?? ''),
+    riderRating:
+      row.delivery?.rating?.ratedAt && row.delivery.rating.stars
+        ? { stars: row.delivery.rating.stars, comment: row.delivery.rating.comment ?? '' }
+        : null,
     timeline: buildTimeline(row, isPickup, at),
   };
 }
@@ -1653,6 +1660,23 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
     );
   }, []);
 
+  /* Same shape as `confirmDelivered`: the returned row, through the one
+     mapping, so the card turns into "You rated …" from the server's answer. */
+  const rateRider = useCallback(async (id: string, stars: number, comment: string) => {
+    const row = await rateFoodRider(id, stars, comment);
+    if (!row) return;
+    setOrders((current) =>
+      current.map((entry) =>
+        entry.id === id
+          ? {
+            ...toAppOrder(row, row.restaurant?.name || entry.kitchenName, new Date()),
+            placedLabel: entry.placedLabel,
+          }
+          : entry,
+      ),
+    );
+  }, []);
+
   /**
    * The one order still in flight — what the pinned card on Home shows.
    *
@@ -1877,6 +1901,7 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       cancelOrder,
       payOrderInCash,
       confirmDelivered,
+      rateRider,
       foodUnread,
       markFoodNotificationsSeen,
       preferences,
@@ -1932,6 +1957,7 @@ function toAppOrder(row: ServerFoodOrder, kitchenName: string, now: Date): FoodO
       cancelOrder,
       payOrderInCash,
       confirmDelivered,
+      rateRider,
       foodUnread,
       markFoodNotificationsSeen,
       preferences,

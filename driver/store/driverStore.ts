@@ -275,6 +275,12 @@ export type DriverProfile = {
   onboarding: { step: OnboardingStep; complete: boolean; missing: string[] };
   hasCompletedOnboarding: boolean;
   canGoOnline: boolean;
+  /**
+   * What diners have said about this rider's deliveries: the average of their
+   * 1–5 star ratings, recomputed by the server from the orders, and how many.
+   * `avg` is null until the first rating. Absent on a server older than ratings.
+   */
+  rating?: { avg: number | null; count: number };
   blockedReason: string;
   locationFresh: boolean;
   isOnline: boolean;
@@ -473,6 +479,18 @@ type DriverState = {
 
   // Duty
   isOnline: boolean;
+  /**
+   * Whether the server has stated `isOnline` during THIS run of the app.
+   *
+   * `isOnline` is persisted — the background location task reads it with the
+   * app closed — so a cold start begins holding the value from last time. Shown
+   * as it was, the app opened already "online" and restarted the duty service
+   * before the server had said a word, which read as the app putting the rider
+   * on duty by itself. Duty is only ever changed by the rider's own tap; until
+   * the server has confirmed what they last chose, the screen shows offline
+   * and nothing is started. Never persisted, so every launch begins false.
+   */
+  dutyConfirmed: boolean;
   togglingDuty: boolean;
   /** The server's caveat when duty is on but it cannot see the rider yet. */
   dutyNote: string;
@@ -650,6 +668,7 @@ function beginSession(
     profile: data.driver,
     otpPhone: null,
     isOnline: !!data.driver.isOnline,
+    dutyConfirmed: true,
   });
   socketService.connect(data.driver.driverId, data.token);
   get().registerForOffers().catch(() => {});
@@ -672,6 +691,7 @@ export const useDriverStore = create<DriverState>()(
       suspensionNotice: "",
 
       isOnline: false,
+      dutyConfirmed: false,
       togglingDuty: false,
       dutyNote: "",
       locationSilentSince: null,
@@ -746,7 +766,20 @@ export const useDriverStore = create<DriverState>()(
             /* An answer at all means the account is not on hold — the guard
                would have refused this request — so any refusal being held from
                a previous read is stale and goes now. */
-            set({ profile: res.data, isOnline: !!res.data.isOnline, suspensionNotice: "" });
+            set({
+              profile: res.data,
+              isOnline: !!res.data.isOnline,
+              dutyConfirmed: true,
+              suspensionNotice: "",
+            });
+            /* The duty service follows the server's answer, never the copy
+               restored from storage: started if the rider left themselves
+               online, stopped if they did not. With a job in hand
+               `fetchActiveJob` owns it, because the persisted job may already
+               be over. */
+            if (!get().currentJob) {
+              syncTracking({ online: !!res.data.isOnline, hasJob: false }).catch(() => {});
+            }
           }
           socketService.connect(res?.data?.driverId ?? null, token);
           return true;
@@ -917,6 +950,7 @@ export const useDriverStore = create<DriverState>()(
           suspensionNotice: "",
           otpPhone: null,
           isOnline: false,
+          dutyConfirmed: false,
           dutyNote: "",
           locationSilentSince: null,
           locationStale: false,
@@ -966,6 +1000,7 @@ export const useDriverStore = create<DriverState>()(
           const fresh = res?.data?.locationFresh;
           set((s) => ({
             isOnline: !!res?.data?.isOnline,
+            dutyConfirmed: true,
             dutyNote: res?.data?.note ?? "",
             /* Cleared on both edges of the switch. Coming on duty, a silence
                that accrued while the app was reporting nothing is not a fault
@@ -998,8 +1033,12 @@ export const useDriverStore = create<DriverState>()(
        * and how long the silence has run is what the home screen reads.
        */
       pushLocation: async (lat, lng, heading) => {
-        const { token, isOnline } = get();
+        const { token, isOnline, dutyConfirmed, currentJob } = get();
         if (!token || !isOnline) return;
+        /* On duty with nothing in hand, only once the server has confirmed the
+           duty this run — see `dutyConfirmed`. A delivery in hand always
+           reports: the diner is watching that position. */
+        if (!dutyConfirmed && !currentJob) return;
         /* One stored fix every few seconds, not every fix. The foreground
            watch fires every 3 s / 5 m — about 300 a quarter-hour on a scooter
            — against a server limit of 240, so a moving rider got 429s, the
@@ -1122,8 +1161,8 @@ export const useDriverStore = create<DriverState>()(
       },
 
       pollOffer: async () => {
-        const { token, isOnline, currentJob, offer } = get();
-        if (!token || !isOnline || currentJob || offer) return;
+        const { token, isOnline, dutyConfirmed, currentJob, offer } = get();
+        if (!token || !isOnline || !dutyConfirmed || currentJob || offer) return;
         try {
           const res = await api<Envelope<Job>>(
             `${BASE}/me/offer`,
@@ -1262,7 +1301,13 @@ export const useDriverStore = create<DriverState>()(
            * genuinely still theirs. A job that ended while the app was closed
            * stops a service that would otherwise have been left running.
            */
-          syncTracking({ online: get().isOnline, hasJob: !!job }).catch(() => {});
+          /* With nothing in hand, the duty half waits for the server to have
+             confirmed duty this run (`dutyConfirmed`) — `refreshProfile`
+             starts or stops it then — so a restored "online" never restarts
+             the service on its own. */
+          if (job || held || get().dutyConfirmed) {
+            syncTracking({ online: get().dutyConfirmed && get().isOnline, hasJob: !!job }).catch(() => {});
+          }
         } catch {
           /* Leaves whatever was persisted. A rider mid-delivery on no signal
              keeps their job on screen. */

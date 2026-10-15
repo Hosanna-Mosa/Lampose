@@ -344,7 +344,11 @@ function Dropdown({
   const [internalOpen, setInternalOpen] = useState(false);
 
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
+  /* Closing only ever closes. `onToggle` FLIPS the state, so a close arriving
+     when the sheet is already shut — a backdrop tap racing the option tap that
+     closed it — used to open it again. */
   const close = () => {
+    if (!open) return;
     if (onToggle) {
       onToggle();
     } else {
@@ -454,7 +458,7 @@ function Dropdown({
                   <Text variant="bodyStrong" color="primary" numberOfLines={1}>
                     {option.label}
                   </Text>
-                  {option.price || option.meta ? (
+                  {(option.unavailable ? option.price : option.price || option.meta) ? (
                     <Text variant="numMeta" color="secondary" numberOfLines={1}>
                       {option.unavailable
                         ? option.price
@@ -663,10 +667,26 @@ export function StayIntentSelector({
    * sharing row (which prices the actual bed) and the action bar (which
    * totals it).
    */
-  const typeOptions: readonly Option[] = tracks.map(({ track: id }) => ({
-    id,
-    label: STAY_TRACK_LABEL[id],
-  }));
+  /*
+   * Both tracks are always listed; one this listing has no rate for is shown
+   * and cannot be picked, with the reason.
+   *
+   * It used to be left out. On a monthly-only PG the sheet then held a single
+   * "Long stay" row, and a student looking for "Short stay" read its absence
+   * as the control being broken. Stated, it is a fact about the place — the
+   * owner has not opened it to short stays — and no daily price is invented
+   * for it.
+   */
+  const typeOptions: readonly Option[] = (['SHORT', 'LONG'] as const).map((id) => {
+    const offered = tracks.some((entry) => entry.track === id);
+    return {
+      id,
+      label: STAY_TRACK_LABEL[id],
+      ...(offered
+        ? null
+        : { meta: 'Not offered at this property', unavailable: true, disabled: true }),
+    };
+  });
 
   /* Short stay is 1–7 days; long stay is whatever months the owner quotes. */
   const lengthOptions: readonly Option[] = useMemo(() => {

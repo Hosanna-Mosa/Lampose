@@ -58,6 +58,19 @@ const SHINE_WIDTH = 26;
  * keeps its small overshoot.
  */
 const BUBBLE_SPRING = { damping: 24, stiffness: 420, mass: 0.7 } as const;
+/**
+ * How long the feed waits after a tap before it changes — about as long as
+ * `BUBBLE_SPRING` takes to land.
+ *
+ * A category change mounts a new street building (a hundred-odd SVG nodes)
+ * and a new page of cards with their photos. On the new architecture those
+ * native views are created on the UI thread, the same thread that draws the
+ * bubble, so mounting them during the move made the bubble stall halfway and
+ * then jump. Waiting for the bubble keeps the move smooth. A quick run of taps
+ * also comes to ONE feed render, for the tile the thumb stopped on, instead
+ * of one queued render per tile passed through.
+ */
+const FEED_COMMIT_DELAY_MS = 200;
 
 export type CategoryGlassBarProps = {
   value: StayCategory;
@@ -114,6 +127,9 @@ export function CategoryGlassBar({
   const [selected, setSelected] = useState(value);
   /** The last category tapped here whose feed render has not landed yet. */
   const pending = useRef<StayCategory | null>(null);
+  /** The category the feed shows or has been asked for — `value`, or the
+      newest `onChange` whose render has not landed yet. */
+  const requested = useRef(value);
   useEffect(() => {
     if (pending.current) {
       /* An older tap's render landing while a newer tap is on its way would
@@ -121,8 +137,25 @@ export function CategoryGlassBar({
       if (value !== pending.current) return;
       pending.current = null;
     }
+    requested.current = value;
     setSelected(value);
   }, [value]);
+
+  /* The tap waiting for the bubble to land — see `FEED_COMMIT_DELAY_MS`. */
+  const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queued = useRef<StayCategory | null>(null);
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
+  /* Leaving with a tap still waiting sends it now rather than losing it. */
+  useEffect(
+    () => () => {
+      if (commitTimer.current) clearTimeout(commitTimer.current);
+      if (queued.current) onChangeRef.current(queued.current);
+    },
+    [],
+  );
 
   const index = Math.max(0, categories.indexOf(selected));
 
@@ -169,15 +202,35 @@ export function CategoryGlassBar({
     } catch {}
     /* The bubble now, before any React work. */
     moveTo(tileIndex);
-    /* Back to the category the feed already shows: no render will come back
-       to clear the wait, so there is nothing to wait for. */
-    pending.current = category === value ? null : category;
+    /* A newer tap replaces one still waiting for its bubble. */
+    if (commitTimer.current) clearTimeout(commitTimer.current);
+    commitTimer.current = null;
+    queued.current = null;
     setSelected(category);
-    /* The feed after, as a transition: interruptible, and a newer tap
-       replaces it rather than waiting behind it. */
-    startTransition(() => {
-      onChange(category);
-    });
+    /* Back to the category the feed already shows (or is already on its way
+       to): no render will come back to clear the wait, and there is nothing
+       to send. */
+    if (category === requested.current) {
+      pending.current = null;
+      return;
+    }
+    pending.current = category;
+    /* The feed after the bubble has landed, as a transition: interruptible,
+       and a newer tap replaces it rather than waiting behind it. */
+    const commit = () => {
+      commitTimer.current = null;
+      queued.current = null;
+      requested.current = category;
+      startTransition(() => {
+        onChangeRef.current(category);
+      });
+    };
+    if (reduceMotion) {
+      commit();
+      return;
+    }
+    queued.current = category;
+    commitTimer.current = setTimeout(commit, FEED_COMMIT_DELAY_MS);
   };
 
   const bubbleStyle = useAnimatedStyle(() => {

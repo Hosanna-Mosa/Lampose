@@ -32,6 +32,7 @@
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
+import { colors } from "@/theme";
 
 /** Must equal OFFER_CHANNEL in the backend's dispatch.notifier.js. */
 export const OFFER_CHANNEL = "delivery-offers";
@@ -69,7 +70,7 @@ export async function ensureChannels(): Promise<void> {
       importance: Notifications.AndroidImportance.MAX,
       sound: "default",
       vibrationPattern: [0, 500, 200, 500],
-      lightColor: "#22A355",
+      lightColor: colors.brand,
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       bypassDnd: false,
     });

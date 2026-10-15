@@ -1,4 +1,4 @@
-import React, { memo, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -9,11 +9,15 @@ import {
   type ViewStyle,
 } from 'react-native';
 import Animated, {
+  cancelAnimation,
+  Easing,
   FadeInDown,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withSequence,
   withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
@@ -21,7 +25,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { Icon, Skeleton, Text } from '@/components/ui';
 import { usePressAnimation } from '@/hooks/usePressAnimation';
-import { useTheme } from '@/context/ThemeContext';
+import { useReduceMotion, useTheme } from '@/context/ThemeContext';
 import { sizedImage } from '@/utils/image';
 import { formatRupees } from '@/utils/money';
 import { availabilityLabel, isGone, isScarce, type Availability, type Listing } from '@/types/listing';
@@ -530,14 +534,31 @@ export const ListingCard = memo(function ListingCard({
   );
 });
 
+/*
+ * The card's line boxes, so the skeleton is the card's exact height and
+ * nothing below it moves when the real card replaces it. Each is the
+ * `lineHeight` of the text it stands in for in `CardBody`: the title, the
+ * location (the stays `body` step, 19), and the price.
+ */
+const SKELETON_LINES = { title: 21, location: 19, price: 26 } as const;
+
 /**
- * Drawn on the same surface and border as the real card in both modes, so the
- * reveal swaps content in without the card itself changing colour. It used to
- * hardcode a white card, which in dark mode was a row of glaring slabs.
+ * A listing card with its content still on the way.
+ *
+ * The real card's frame, to the point: the same surface, border, shadow and
+ * radius, the photo at its real height with the heart, the photo counter and
+ * the page dots where they will be, and a body whose rows are the real rows'
+ * heights and spacing — so the reveal swaps content in without the card
+ * changing colour, size or position. Each bar sits centred in its row and is
+ * the tallest where the eye should rest: the price.
  */
 export function ListingCardSkeleton({ variant = 'carousel' }: { variant?: ListingCardVariant }) {
-  const { colors, mode, space } = useTheme();
+  const { colors, mode } = useTheme();
+  const dark = mode === 'dark';
   const width = variant === 'carousel' ? GEOMETRY.carousel.width : undefined;
+  const photoHeight = variant === 'carousel' ? GEOMETRY.carousel.photoHeight : GEOMETRY.list.photoHeight;
+  /* The floating controls, a shade off the photo block they sit on. */
+  const overlay = dark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(15, 23, 42, 0.07)';
 
   return (
     <View
@@ -546,38 +567,89 @@ export function ListingCardSkeleton({ variant = 'carousel' }: { variant?: Listin
         styles.cardOuter,
         {
           width,
-          paddingBottom: space[3],
           backgroundColor: colors.surface,
-          borderColor: mode === 'dark' ? colors.borderSubtle : '#E2E8F0',
+          borderColor: dark ? colors.borderSubtle : '#E2E8F0',
+          shadowColor: '#000000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: dark ? 0.18 : 0.05,
+          shadowRadius: 5,
+          elevation: 1,
         },
       ]}
     >
-      <Skeleton
-        width={variant === 'carousel' ? GEOMETRY.carousel.width : '100%'}
-        height={variant === 'carousel' ? GEOMETRY.carousel.photoHeight : GEOMETRY.list.photoHeight}
-        radius={0}
-      />
-      <View style={{ padding: 14, gap: 10 }}>
-        <View style={styles.skeletonRow}>
-          <Skeleton width="58%" height={16} />
-          <Skeleton width={36} height={14} />
+      <View style={{ height: photoHeight }}>
+        <Skeleton width="100%" height={photoHeight} radius={0} />
+        <View style={[styles.topRightContainer, styles.skeletonHeart, { backgroundColor: overlay }]} />
+        <View style={[styles.bottomRightContainer, styles.skeletonCount, { backgroundColor: overlay }]} />
+        <View style={styles.dotsContainer}>
+          <View style={[styles.skeletonDots, { backgroundColor: overlay }]} />
         </View>
-        <Skeleton width="42%" height={12} />
-        <View style={[styles.skeletonRow, { marginTop: 4 }]}>
-          <Skeleton width="38%" height={22} />
-          <Skeleton width={72} height={22} radius={999} />
+      </View>
+
+      <View style={styles.bodyContainer}>
+        <View style={[styles.skeletonLine, { height: SKELETON_LINES.title }]}>
+          <Skeleton width="64%" height={14} radius={4} />
+        </View>
+        <View style={[styles.skeletonLine, styles.skeletonLocation, { height: SKELETON_LINES.location }]}>
+          <Skeleton width={14} height={14} radius={7} />
+          <Skeleton width="46%" height={11} radius={4} />
+        </View>
+        <View style={[styles.skeletonLine, styles.skeletonPrice, { height: SKELETON_LINES.price }]}>
+          <Skeleton width="30%" height={20} radius={5} />
+          <Skeleton width={56} height={10} radius={4} />
         </View>
       </View>
     </View>
   );
 }
 
+/**
+ * The feed's loading state: `count` card skeletons, breathing together.
+ *
+ * One slow opacity pulse over the whole group, not a shimmer per block — the
+ * per-block sweep was cut from `Skeleton` for jank, and a single view's
+ * opacity runs on the native thread and costs next to nothing. The pulse is
+ * what says "still working" while the shape says "this is what is coming".
+ * Still under reduced motion.
+ */
+export function ListingFeedSkeleton({ count = 3, gap = 16, style }: { count?: number; gap?: number; style?: ViewStyle }) {
+  const reduceMotion = useReduceMotion();
+  const pulse = useSharedValue(1);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      cancelAnimation(pulse);
+      pulse.value = 1;
+      return undefined;
+    }
+    pulse.value = withRepeat(withTiming(0.55, { duration: 850, easing: Easing.inOut(Easing.quad) }), -1, true);
+    return () => cancelAnimation(pulse);
+  }, [reduceMotion, pulse]);
+
+  const breathing = useAnimatedStyle(() => ({ opacity: pulse.value }));
+
+  return (
+    <Animated.View
+      accessibilityRole="progressbar"
+      accessibilityLabel="Loading places"
+      style={[{ gap }, style, breathing]}
+    >
+      {Array.from({ length: count }, (_, key) => (
+        <ListingCardSkeleton key={key} variant="list" />
+      ))}
+    </Animated.View>
+  );
+}
+
 const styles = StyleSheet.create({
-  skeletonRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
+  skeletonLine: { justifyContent: 'center' },
+  skeletonLocation: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  /* `priceUrgencyRow`'s own top margin; bars on the price's baseline side. */
+  skeletonPrice: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginTop: 2, paddingBottom: 3 },
+  /* The heart button's circle, the counter pill and the dots pill. */
+  skeletonHeart: { width: 34, height: 34, borderRadius: 17 },
+  skeletonCount: { width: 40, height: 21, borderRadius: 8 },
+  skeletonDots: { width: 52, height: 13, borderRadius: 9 },
   cardOuter: {
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,

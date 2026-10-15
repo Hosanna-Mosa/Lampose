@@ -16,6 +16,7 @@ import {
   FoodNotice,
   FoodStatusChip,
   FoodTimeline,
+  RateRiderCard,
   ReceiptLine,
   timelineIndex,
   type BillLine,
@@ -90,7 +91,7 @@ export default function OrderScreen() {
     }]);
   }, [reorderNote, setReorderNote, router]);
   const { id, placed } = useLocalSearchParams<{ id: string; placed?: string }>();
-  const { orders, cancelOrder, confirmDelivered, refreshOrder, startPayment, address, settlePaidOrder } = useFood();
+  const { orders, cancelOrder, confirmDelivered, rateRider, refreshOrder, startPayment, address, settlePaidOrder } = useFood();
 
   const [cancelling, setCancelling] = useState(false);
   /* One cancel at a time. A double tap sent two: the first cancelled the
@@ -789,6 +790,10 @@ export default function OrderScreen() {
             ) : null}
           </View>
         ) : null}
+
+        {/* Stars for the rider, once it has arrived — and then what was said.
+            Draws nothing where there is nobody to rate. */}
+        {finished ? <RateRiderCard order={order} onRate={rateRider} /> : null}
 
         {/* The live head. Everything a student needs while standing up. */}
         {live ? (

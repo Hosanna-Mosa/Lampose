@@ -4,7 +4,7 @@ import { Btn, Notice, TopBar } from "@/components/ui";
 import { useWallet } from "@/hooks/useWallet";
 import { describeEntry, fetchWallet, paiseToRupees, type LedgerEntry } from "@/services/wallet";
 import { useDriverStore } from "@/store/driverStore";
-import { layout, space } from "@/theme";
+import { colors, layout, space } from "@/theme";
 
 /**
  * Every movement of the rider's money, newest first — the server's ledger
@@ -119,37 +119,37 @@ function Row({ entry }: { entry: LedgerEntry }) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#FFFFFF" },
+  root: { flex: 1, backgroundColor: colors.surface },
   content: { paddingHorizontal: layout.gutter, paddingTop: space[3], paddingBottom: space[8] },
 
   summary: {
     flexDirection: "row",
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.border,
     borderRadius: 16,
     paddingVertical: 14,
     marginBottom: space[3],
   },
   summaryCol: { flex: 1, alignItems: "center" },
-  summaryLabel: { fontSize: 12, fontWeight: "600", color: "#6b7280" },
-  summaryValue: { fontSize: 20, fontWeight: "900", color: "#064e3b", marginTop: 2 },
-  owed: { color: "#b45309" },
+  summaryLabel: { fontSize: 12, fontWeight: "600", color: colors.textSecondary },
+  summaryValue: { fontSize: 20, fontWeight: "900", color: colors.textPrimary, marginTop: 2 },
+  owed: { color: colors.warning.base },
 
   row: {
     flexDirection: "row",
     gap: space[3],
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#f3f4f6",
+    borderBottomColor: colors.borderSubtle,
   },
   rowMain: { flex: 1 },
-  rowTitle: { fontSize: 14.5, fontWeight: "700", color: "#111827" },
-  rowDetail: { fontSize: 12.5, color: "#4b5563", marginTop: 2 },
-  rowWhen: { fontSize: 11.5, color: "#9ca3af", marginTop: 3 },
+  rowTitle: { fontSize: 14.5, fontWeight: "700", color: colors.textPrimary },
+  rowDetail: { fontSize: 12.5, color: colors.textSecondary, marginTop: 2 },
+  rowWhen: { fontSize: 11.5, color: colors.textTertiary, marginTop: 3 },
   rowSide: { alignItems: "flex-end" },
   change: { fontSize: 13.5, fontWeight: "800" },
-  plus: { color: "#047857" },
-  minus: { color: "#374151" },
-  owe: { color: "#b45309" },
-  paid: { color: "#047857" },
+  plus: { color: colors.textPrimary },
+  minus: { color: colors.textPrimary },
+  owe: { color: colors.warning.base },
+  paid: { color: colors.textPrimary },
 });

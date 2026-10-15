@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View, type ViewStyle } from 'react-native';
 import Animated, {
   cancelAnimation,
@@ -43,6 +43,9 @@ import { useReduceMotion, useTheme } from '@/context/ThemeContext';
  */
 
 export const HERO_SCENE_HEIGHT = 210;
+
+/** One crossing of the sky by the cloud. */
+const CLOUD_LAP_MS = 22000;
 
 /* ── The street's horizontal bands, top to bottom ──────────────────────── */
 
@@ -300,34 +303,30 @@ const AnimatedPolygon = Animated.createAnimatedComponent(Polygon);
 
 const LIT = '#FCDD44';
 
-function Window({
+/**
+ * A window's light, coming on in turn as `lights` runs 0 → 1.
+ *
+ * It reads `lights` only, so once the building has lit up it stops updating.
+ * The flicker is NOT here: an animated SVG prop costs a native redraw of the
+ * whole drawing on every frame, and the twinkle runs forever — so the
+ * twinkling windows sit on a layer of their own and the flicker is that
+ * layer's opacity (see `Building`), which is the same product of the two.
+ */
+function WindowLight({
   win,
   index,
   total,
-  glass,
   lights,
-  twinkle,
 }: {
   win: Win;
   index: number;
   total: number;
-  glass: string;
   lights: SharedValue<number>;
-  twinkle: SharedValue<number>;
 }) {
-  const animatedProps = useAnimatedProps(() => {
-    if (!win.lit) return { fillOpacity: 0 };
-    /* Each window comes on in turn as `lights` runs 0 → 1. */
-    const on = Math.min(1, Math.max(0, lights.value * (total + 1) - index));
-    const flicker = win.twinkles ? 0.55 + 0.45 * twinkle.value : 1;
-    return { fillOpacity: on * flicker };
-  });
-  return (
-    <>
-      <Polygon points={win.points} fill={glass} />
-      <AnimatedPolygon points={win.points} fill={LIT} animatedProps={animatedProps} />
-    </>
-  );
+  const animatedProps = useAnimatedProps(() => ({
+    fillOpacity: Math.min(1, Math.max(0, lights.value * (total + 1) - index)),
+  }));
+  return <AnimatedPolygon points={win.points} fill={LIT} animatedProps={animatedProps} />;
 }
 
 function Faces({ faces }: { faces: readonly Face[] }) {
@@ -371,6 +370,16 @@ function Building({
     lights.value = withDelay(320, withTiming(1, { duration: 900, easing: Easing.out(Easing.quad) }));
   }, [still, lights]);
 
+  /* View opacity, not an SVG prop: animated on the native fast path, with no
+     redraw of the drawing underneath. */
+  const flicker = useAnimatedStyle(() => ({ opacity: 0.55 + 0.45 * twinkle.value }));
+
+  const total = scene.wins.length;
+  const twinkling = scene.wins.some((win) => win.lit && win.twinkles);
+
+  /* Three stacked layers, in the order one drawing would paint them: the back
+     faces with every window's glass and the steady lights, then the
+     twinkling lights, then the front faces over both. */
   return (
     <Animated.View
       style={StyleSheet.absoluteFill}
@@ -380,8 +389,26 @@ function Building({
       <Svg width={width} height={H}>
         <Faces faces={scene.back} />
         {scene.wins.map((win, i) => (
-          <Window key={i} win={win} index={i} total={scene.wins.length} glass={glass} lights={lights} twinkle={twinkle} />
+          <Polygon key={i} points={win.points} fill={glass} />
         ))}
+        {scene.wins.map((win, i) =>
+          win.lit && !win.twinkles ? (
+            <WindowLight key={i} win={win} index={i} total={total} lights={lights} />
+          ) : null,
+        )}
+      </Svg>
+      {twinkling ? (
+        <Animated.View style={[StyleSheet.absoluteFill, flicker]}>
+          <Svg width={width} height={H}>
+            {scene.wins.map((win, i) =>
+              win.lit && win.twinkles ? (
+                <WindowLight key={i} win={win} index={i} total={total} lights={lights} />
+              ) : null,
+            )}
+          </Svg>
+        </Animated.View>
+      ) : null}
+      <Svg width={width} height={H} style={StyleSheet.absoluteFill}>
         <Faces faces={scene.front} />
       </Svg>
     </Animated.View>
@@ -649,11 +676,15 @@ export const HeroScene3D = React.memo(function HeroScene3D({ category, width, st
   const sparkA = useSharedValue(0.5);
   const sparkB = useSharedValue(0.5);
 
+  /* Whether the loops have begun, so a resume can tell itself from a start. */
+  const started = useRef(false);
+
   useEffect(() => {
     const all = [twinkle, drift, sparkA, sparkB];
     if (still) {
       all.forEach((value) => cancelAnimation(value));
       twinkle.value = 1;
+      started.current = false;
       return;
     }
     /* Frozen where they are while nobody can see them — see useLoop. */
@@ -661,15 +692,44 @@ export const HeroScene3D = React.memo(function HeroScene3D({ category, width, st
       all.forEach((value) => cancelAnimation(value));
       return;
     }
-    const breathe = (ms: number) => withRepeat(withTiming(1, { duration: ms, easing: Easing.inOut(Easing.sin) }), -1, true);
-    twinkle.value = 0;
-    twinkle.value = breathe(1400);
-    sparkA.value = 0;
-    sparkA.value = breathe(1700);
-    sparkB.value = 0;
-    sparkB.value = withDelay(800, breathe(2100));
-    drift.value = 0;
-    drift.value = withRepeat(withTiming(1, { duration: 22000, easing: Easing.linear }), -1, false);
+    const sine = Easing.inOut(Easing.sin);
+    const breathe = (ms: number) => withRepeat(withTiming(1, { duration: ms, easing: sine }), -1, true);
+    const cloudLap = withRepeat(withTiming(1, { duration: CLOUD_LAP_MS, easing: Easing.linear }), -1, false);
+
+    if (started.current) {
+      /*
+       * Resumed after a pause: each one carries on from where it froze, as
+       * the traffic does (`useLoop`). Restarting from 0 jumped the cloud back
+       * to the left edge and reset the sparkles and the twinkle — a visible
+       * snap every time the hero came back into view.
+       */
+      const resumeBreath = (value: SharedValue<number>, ms: number) => {
+        const from = value.value;
+        value.value = withSequence(
+          withTiming(1, { duration: Math.max(0, 1 - from) * ms, easing: sine }),
+          withRepeat(withTiming(0, { duration: ms, easing: sine }), -1, true),
+        );
+      };
+      resumeBreath(twinkle, 1400);
+      resumeBreath(sparkA, 1700);
+      resumeBreath(sparkB, 2100);
+      const from = drift.value;
+      drift.value = withSequence(
+        withTiming(1, { duration: Math.max(0, 1 - from) * CLOUD_LAP_MS, easing: Easing.linear }),
+        withTiming(0, { duration: 0 }),
+        cloudLap,
+      );
+    } else {
+      started.current = true;
+      twinkle.value = 0;
+      twinkle.value = breathe(1400);
+      sparkA.value = 0;
+      sparkA.value = breathe(1700);
+      sparkB.value = 0;
+      sparkB.value = withDelay(800, breathe(2100));
+      drift.value = 0;
+      drift.value = cloudLap;
+    }
     return () => all.forEach((value) => cancelAnimation(value));
   }, [still, paused, twinkle, drift, sparkA, sparkB]);
 

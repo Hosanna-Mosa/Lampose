@@ -25,6 +25,7 @@ export { DockedCartBar, type DockedCartBarProps } from './DockedCartBar';
 export { BillBreakdown, ReceiptLine, type BillLine, type BillBreakdownProps } from './BillBreakdown';
 export { ActiveOrderCard, FoodStatusChip, FoodTimeline, timelineIndex } from './FoodStatus';
 export { FoodNotice, FoodSectionHeader, OfferStrip, type FoodNoticeTone } from './FoodNotices';
+export { RateRiderCard, type RateRiderCardProps } from './RateRiderCard';
 export { FoodEmptyState, FoodFeedSkeleton, FoodMenuSkeleton, type FoodEmptyStateProps } from './FoodStates';
 export { CartSwitchSheet, type CartSwitchSheetProps } from './CartSwitchSheet';
 export { AddressSheet, type AddressSheetProps } from './AddressSheet';

@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
     width: "100%",
     aspectRatio: 0.72,
     borderRadius: radius.button,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
   },
   qrPlaceholder: {
     height: 220,
