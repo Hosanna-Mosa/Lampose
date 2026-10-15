@@ -418,6 +418,26 @@ const config = {
     whatsapp: String(process.env.DELIVERY_PARTNER_WHATSAPP || '+916302321942').trim(),
   },
 
+  /**
+   * Who is told about a delivery, and how: the rider-dispatch switch.
+   *
+   *   app        a rider is searched for and offered the job in the driver app
+   *              (Accept / Decline). How it has always worked, and the default.
+   *   whatsapp   no search, no offers. When the restaurant accepts, the full
+   *              order is sent on WhatsApp to EVERY number in `numbers` — the
+   *              Lampose team's own people — who arrange the delivery by hand.
+   *              Nobody replies; there is nothing to accept.
+   *
+   * Anything other than the word `whatsapp` is `app`, so a typo can never
+   * silently stop riders being searched for. Numbers are comma-separated, any
+   * format `toE164` reads. See `foodDelivery.service.js#dispatchToTeam`.
+   */
+  riderDispatch: {
+    mode: String(process.env.RIDER_DISPATCH_MODE || 'app').trim().toLowerCase() === 'whatsapp' ? 'whatsapp' : 'app',
+    numbers: String(process.env.RIDER_DISPATCH_NUMBERS || '')
+      .split(',').map((n) => n.trim()).filter(Boolean),
+  },
+
   /* TESTING ONLY. Lets one owner phone onboard several restaurants, so a tester
      can run the application flow again on their own number. Phone login then
      signs into whichever restaurant it finds first. Never true in production —

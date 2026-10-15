@@ -178,8 +178,16 @@ export default function KitchenScreen() {
    * feed does not have it, so a listed kitchen costs nothing extra.
    */
   const listed = id ? findKitchen(id) : undefined;
-  const detail = useKitchen(!listed && !loading ? id : null);
-  const kitchen = listed ?? detail.data?.kitchen;
+  /* The catalogue only fans menus out to its first MENU_FANOUT_CAP kitchens,
+     so a kitchen the feed lists beyond that has no dishes here yet. It is
+     read by id as well — the same cache entry — instead of showing an empty
+     menu for a kitchen that has one. */
+  const catalogueHasMenu = listed ? menuFor(listed).length > 0 : false;
+  const detail = useKitchen((!listed || !catalogueHasMenu) && !loading ? id : null);
+  /* A feed row carries no section names, and the menu is drawn grouped by
+     section — so once the menu comes from the kitchen's own response, the
+     kitchen must too, or the dishes are counted and never drawn. */
+  const kitchen = (catalogueHasMenu ? listed : (detail.data?.kitchen ?? listed)) ?? detail.data?.kitchen;
   /* A 404 is the server saying the kitchen is gone, which is the "not on
      LAMPOSE" screen below; anything else is the connection. */
   const detailError =
@@ -214,11 +222,11 @@ export default function KitchenScreen() {
   const detailDishes = detail.data?.dishes;
   const menu = useMemo(() => {
     if (!kitchen) return [];
-    if (listed) return menuFor(kitchen);
+    if (listed && catalogueHasMenu) return menuFor(kitchen);
     return [...(detailDishes ?? [])].sort(
       (a, b) => kitchen.sections.indexOf(a.section) - kitchen.sections.indexOf(b.section),
     );
-  }, [menuFor, kitchen, listed, detailDishes]);
+  }, [menuFor, kitchen, listed, catalogueHasMenu, detailDishes]);
   const visible = useMemo(
     () =>
       menu.filter((dish) => {

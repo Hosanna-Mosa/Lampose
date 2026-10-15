@@ -284,6 +284,105 @@ async function arrangeDelivery(orderNumber, method, restaurantId) {
   return { ok: true, order, sent };
 }
 
+/** "2 x Chicken Biryani (Half), 1 x Raita" - what is in the bag, on one line. */
+const itemsLine = (order) => (order.lines || [])
+  .map((line) => `${line.quantity} x ${line.productName}${line.variantName ? ` (${line.variantName})` : ''}`)
+  .join(', ') || 'See the order';
+
+/**
+ * RIDER_DISPATCH_MODE=whatsapp: tell the Lampose team about this order.
+ *
+ * Called by `startDispatch` instead of the rider search. The full order goes to
+ * EVERY number in `RIDER_DISPATCH_NUMBERS` - no online check, no location
+ * check, nothing to accept. The order is then recorded as arranged by the desk
+ * (`delivery.method = 'driver'`) so everything downstream is the flow that
+ * already exists for it: the diner is told a driver is assigned once a message
+ * has gone, the restaurant marks it taken, the diner or Lampose admin closes it.
+ *
+ * Succeeds if AT LEAST ONE number got it; the per-number failures are kept in
+ * `delivery.request.error`. A total failure leaves the order `unassigned`, so
+ * the existing backstop sweep retries it, and an administrator can resend.
+ *
+ * Never throws - the restaurant's accept has already been committed.
+ *
+ * @param {string} orderNumber
+ * @returns {Promise<{ok: boolean, sent: number, total: number, error?: string}>}
+ */
+async function dispatchToTeam(orderNumber) {
+  const order = await FoodOrder.findOne({ orderNumber });
+  if (!order) return { ok: false, sent: 0, total: 0, error: 'The order no longer exists.' };
+
+  const numbers = config.riderDispatch.numbers;
+  const wasAssigned = driverAssigned(order);
+  const details = describeRequest(order);
+  // eslint-disable-next-line global-require
+  const dispatch = require('../drivers/foodDispatch.service');
+  const earnings = dispatch.riderEarningsFor(order);
+
+  let results = [];
+  if (numbers.length) {
+    results = await Promise.all(numbers.map(async (to) => {
+      try {
+        /* Looked up on the module at call time so a test can replace it. */
+        const result = await twilio.sendRiderDispatch({
+          to, ...details, items: itemsLine(order), payout: rupees(earnings),
+        });
+        return { to, ...result };
+      } catch (error) {
+        return { to, success: false, error: error.message };
+      }
+    }));
+  }
+
+  const delivered = results.filter((r) => r.success);
+  const failed = results.filter((r) => !r.success);
+  const ok = delivered.length > 0;
+  const error = ok && !failed.length ? ''
+    : !numbers.length ? 'RIDER_DISPATCH_NUMBERS is empty, so nobody was told.'
+      : failed.map((r) => `${r.to}: ${r.error || 'not accepted'}`).join(' | ').slice(0, 400);
+
+  order.delivery.method = 'driver';
+  if (!order.delivery.methodChosenAt) order.delivery.methodChosenAt = new Date();
+  order.delivery.earnings = earnings;
+  order.delivery.request = {
+    to: numbers.join(',').slice(0, 300),
+    sentAt: new Date(),
+    ok,
+    messageSid: (delivered[0] && delivered[0].messageSid) || '',
+    error,
+    attempts: ((order.delivery.request && order.delivery.request.attempts) || 0) + 1,
+  };
+  if (ok) {
+    order.dispatch.state = 'idle';
+    order.dispatch.failureReason = '';
+  } else {
+    order.dispatch.state = 'unassigned';
+    order.dispatch.attempts = (order.dispatch.attempts || 0) + 1;
+    order.dispatch.failureReason = 'the team could not be messaged on WhatsApp - our team has been alerted';
+  }
+  await order.save();
+
+  console.log(
+    `${BADGE} [Team dispatch] ${order.orderNumber} -> ${delivered.length}/${numbers.length} number(s)`
+    + `${error ? ` · ${error}` : ''}`,
+  );
+
+  try {
+    // eslint-disable-next-line global-require
+    const realtime = require('../../infrastructure/realtime/realtime');
+    // eslint-disable-next-line global-require
+    const notifier = require('../drivers/dispatch.notifier');
+    realtime.toOrderParties(order, 'dispatch_update', dispatch.dispatchUpdate(order));
+    if (!wasAssigned && driverAssigned(order)) {
+      notifier.notifyCustomerOfDriverAssigned(order).catch(() => {});
+    }
+  } catch (err) {
+    logError('announcing a team dispatch', err);
+  }
+
+  return { ok, sent: delivered.length, total: numbers.length, ...(error ? { error } : {}) };
+}
+
 /**
  * "The delivery boy has taken it" — the restaurant's one move on an order it
  * arranged after the food is ready. Writes the time so the diner's page can say
@@ -328,6 +427,7 @@ const markDelivered = (order, { by, note = '' }) => {
 };
 
 module.exports = {
+  dispatchToTeam,
   ARRANGEABLE,
   arrangeDelivery,
   markPickedUp,
