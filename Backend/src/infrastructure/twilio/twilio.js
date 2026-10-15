@@ -1305,6 +1305,83 @@ async function sendDeliveryRequest({
 }
 
 /**
+ * The full order, to ONE member of the Lampose team (`RIDER_DISPATCH_MODE=whatsapp`).
+ *
+ * Unlike `sendDeliveryRequest` this carries what is in the bag and what the
+ * rider earns, because the person reading it arranges the delivery by hand and
+ * has no app to look anything up in. Nobody replies to it: there is no accept
+ * and no reject. `riderDispatchTemplate.js` is the contract for the eight
+ * variables; `tests/riderDispatchMode.test.js` fails if the two disagree.
+ *
+ * Without `TWILIO_RIDER_DISPATCH_CONTENT_SID` it falls back to plain text,
+ * which WhatsApp delivers only inside an open 24-hour session (fine for the
+ * sandbox, not for a cold production send).
+ *
+ * @param {object} p
+ * @param {string} p.to
+ * @param {string} p.orderNumber
+ * @param {string} p.restaurantName
+ * @param {string} p.pickup
+ * @param {string} p.drop
+ * @param {string} p.customer   name and phone
+ * @param {string} p.items      "2 x Chicken Biryani, 1 x Raita"
+ * @param {string} p.collect
+ * @param {string} p.payout     what the rider is paid for the task
+ */
+async function sendRiderDispatch({
+  to, orderNumber, restaurantName, pickup, drop, customer, items, collect, payout,
+}) {
+  if (!client) return { success: false, error: 'WhatsApp is not configured on this server.' };
+
+  const target = formatWhatsAppNumber(to);
+  if (!target) return { success: false, error: `"${to}" is not a valid phone number.` };
+
+  const contentSid = process.env.TWILIO_RIDER_DISPATCH_CONTENT_SID;
+  const body = `🛵 New delivery - ${orderNumber}\n\n`
+    + `Pickup: ${restaurantName}\n${pickup}\n\n`
+    + `Drop: ${drop}\n`
+    + `Customer: ${customer}\n\n`
+    + `Items: ${items}\n\n`
+    + `${collect}\n`
+    + `Rider payout: ${payout}\n\n`
+    + 'Please arrange a rider to collect this from the restaurant and hand it to the customer named above.';
+
+  /* Never empty - Twilio rejects the whole send (63028) - see sendDeliveryRequest. */
+  const slot = (value, max) => oneLine(value, max) || '-';
+
+  try {
+    const message = await client.messages.create(contentSid
+      ? {
+        from: whatsappFrom,
+        to: target,
+        contentSid,
+        contentVariables: JSON.stringify({
+          1: slot(orderNumber, 20),
+          2: slot(restaurantName, 60),
+          3: slot(pickup, 200),
+          4: slot(drop, 300),
+          5: slot(customer, 80),
+          6: slot(items, 400),
+          7: slot(collect, 60),
+          8: slot(payout, 30),
+        }),
+      }
+      : { from: whatsappFrom, to: target, body });
+
+    const settled = await settle(message.sid);
+    if (settled && REFUSED.has(settled.status)) {
+      const error = explainWhatsAppError(settled.errorCode, settled.errorMessage);
+      console.error(`❌ Rider dispatch ${orderNumber} refused by WhatsApp for ${target} (${settled.errorCode || settled.status}): ${error}`);
+      return { success: false, messageSid: message.sid, status: settled.status, error };
+    }
+    return { success: true, messageSid: message.sid, status: settled ? settled.status : message.status };
+  } catch (error) {
+    console.error(`❌ Rider dispatch ${orderNumber} could not be sent to ${target}: ${error.message}`);
+    return { success: false, error: explainWhatsAppError(error.code, error.message) };
+  }
+}
+
+/**
  * Test seam: swap in a fake Twilio client, and make the settle polling fast.
  *
  * Nothing outside a test calls this. It exists because `client` is built from
@@ -1486,6 +1563,7 @@ module.exports = {
   sendSlotReminder,
   sendFoodOrderAlert,
   sendDeliveryRequest,
+  sendRiderDispatch,
   sendRestaurantApproved,
   sendOrderPlaced,
 };

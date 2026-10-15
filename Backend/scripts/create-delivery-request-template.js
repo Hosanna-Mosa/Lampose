@@ -44,11 +44,16 @@
    ══════════════════════════════════════════════════════════════════════════ */
 require('dotenv').config();
 
+/* `--rider` works on the rider-dispatch template (RIDER_DISPATCH_MODE=whatsapp)
+   instead of the delivery-desk one; every other flag behaves the same. */
+const useRider = process.argv.includes('--rider');
 const {
   FRIENDLY_NAME, LANGUAGE, CATEGORY, BODY, SAMPLES, render,
-} = require('../src/infrastructure/twilio/deliveryRequestTemplate');
+} = useRider
+  ? require('../src/infrastructure/twilio/riderDispatchTemplate')
+  : require('../src/infrastructure/twilio/deliveryRequestTemplate');
 
-const ENV_KEY = 'TWILIO_DELIVERY_REQUEST_CONTENT_SID';
+const ENV_KEY = useRider ? 'TWILIO_RIDER_DISPATCH_CONTENT_SID' : 'TWILIO_DELIVERY_REQUEST_CONTENT_SID';
 const TYPES = { 'twilio/text': { body: BODY } };
 
 const args = process.argv.slice(2);
@@ -217,7 +222,7 @@ const submit = async (sid) => call('POST', `/v1/Content/${sid}/ApprovalRequests/
   if (!has('--submit')) {
     console.log('  NOT submitted to Meta. Until it is approved this template can only be');
     console.log('  sent inside an open 24-hour session.');
-    console.log(`  To submit: npm run twilio:delivery-template -- --submit-sid ${sid}\n`);
+    console.log(`  To submit: npm run twilio:delivery-template -- ${useRider ? '--rider ' : ''}--submit-sid ${sid}\n`);
     return;
   }
 
@@ -231,7 +236,7 @@ const submit = async (sid) => call('POST', `/v1/Content/${sid}/ApprovalRequests/
 
   console.log(`  Submitted to Meta for approval as ${CATEGORY}. Status: ${(submitted.json && submitted.json.status) || 'received'}`);
   console.log('  Approval usually takes minutes to a few hours.\n');
-  console.log(`  Check it:   npm run twilio:delivery-template -- --status ${sid}`);
+  console.log(`  Check it:   npm run twilio:delivery-template -- ${useRider ? '--rider ' : ''}--status ${sid}`);
   console.log('  When it says "approved", put this in .env and restart the backend:\n');
   console.log(`  ${ENV_KEY}=${sid}\n`);
 })().catch((error) => {

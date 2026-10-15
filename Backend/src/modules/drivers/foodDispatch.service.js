@@ -100,6 +100,7 @@ const FoodRestaurant = require('../foodpartners/foodRestaurant.model');
 const Driver = require('./driver.model');
 const { findCandidatesWithinRadius, dutyCount } = require('./driverMatch.service');
 const riderLedger = require('./riderLedger.service');
+const config = require('../../config/env');
 
 /* The rider will take cash at the door — cash on delivery, not yet paid.
    Such an order skips riders at or over the cash limit (driverMatch). The
@@ -436,7 +437,35 @@ async function startDispatch(orderNumber, { reason = 'accepted' } = {}) {
 
   try {
     const order = await FoodOrder.findOne({ orderNumber: number });
-    const refusal = eligibleForDispatch(order);
+    let refusal = eligibleForDispatch(order);
+
+    /*
+     * RIDER_DISPATCH_MODE=whatsapp: no search, no offers, no widening timers.
+     * The Lampose team is messaged the full order instead. Every caller
+     * (accept, "food is ready", admin, the backstop sweep) comes through here,
+     * so this is the one switch. The order is then marked as arranged by the
+     * desk, which `eligibleForDispatch` refuses - so a message that WENT is
+     * never sent twice, while one that FAILED may be retried (by the sweep, up
+     * to MAX_SWEEPS, or by an administrator at any time). `app` mode, the
+     * default, never reaches this and is exactly as before.
+     */
+    if (config.riderDispatch.mode === 'whatsapp') {
+      const arranged = refusal === 'the restaurant is arranging the delivery'
+        && order.delivery.method === 'driver';
+      const sentOk = Boolean(order.delivery.request && order.delivery.request.ok);
+      if (arranged && (!sentOk || reason === 'admin')) refusal = null;
+      if (!refusal && reason !== 'admin' && order.dispatch.attempts >= MAX_SWEEPS) {
+        refusal = `the team could not be messaged after ${MAX_SWEEPS} attempts - resend from the console`;
+      }
+      if (refusal) {
+        console.log(`${BADGE} ${number} not sent to the team — ${refusal}`);
+        return { started: false, reason: refusal };
+      }
+      // eslint-disable-next-line global-require
+      const result = await require('../foodpartners/foodDelivery.service').dispatchToTeam(number);
+      return { started: result.ok, mode: 'whatsapp', reason: result.error || undefined };
+    }
+
     if (refusal) {
       console.log(`${BADGE} ${number} not dispatched — ${refusal}`);
       return { started: false, reason: refusal };

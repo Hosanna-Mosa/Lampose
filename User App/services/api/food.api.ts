@@ -56,6 +56,8 @@ type KitchenDetailResponse = {
 /** `GET /products/:productId` answers `{ data: { product, restaurant } }`. */
 type DishResponse = { success?: boolean; data?: { product?: BackendDish; restaurant?: BackendKitchen } };
 
+const FEED_LIMIT = 50;
+
 const clean = (query: KitchenQuery): Record<string, string> => {
   const out: Record<string, string> = {};
   if (typeof query.lat === 'number' && typeof query.lng === 'number') {
@@ -66,7 +68,10 @@ const clean = (query: KitchenQuery): Record<string, string> => {
   if (query.cuisine?.trim()) out.cuisine = query.cuisine.trim();
   if (query.search?.trim()) out.search = query.search.trim();
   if (query.openNow) out.openNow = 'true';
-  if (query.limit) out.limit = String(query.limit);
+  /* No caller sets a limit, and the server's default page is small enough to
+     push a newer-listed kitchen off the feed. Ask for the most it will give
+     (it caps at 50). */
+  out.limit = String(query.limit || FEED_LIMIT);
   if (query.partnerType) out.partnerType = query.partnerType;
   return out;
 };

@@ -549,6 +549,21 @@ polling and says so in the boot banner. Behind nginx the delivery flow needs
 the `Upgrade`/`Connection` headers proxied; without them it falls back to
 long-polling on its own.
 
+### Rider dispatch mode (`RIDER_DISPATCH_MODE`)
+
+One switch decides how a rider is found for an accepted delivery order.
+
+| Mode | What happens on accept |
+| --- | --- |
+| `app` (default) | Today's flow: nearby riders are offered the job in the driver app. |
+| `whatsapp` | No search, no offers, no widening timers. The full order (restaurant, items, customer name/phone/address, amount to collect, rider payout) is WhatsApped to **every** number in `RIDER_DISPATCH_NUMBERS`. Nobody replies; there is no accept. |
+
+- The switch is inside `startDispatch` (`foodDispatch.service.js`), so accept, the "food is ready" retry, the backstop sweep and the console's "Find a rider" all obey it. The sending is `dispatchToTeam` in `foodDelivery.service.js`; the message is `sendRiderDispatch` in `twilio.js` (template: `riderDispatchTemplate.js`, env `TWILIO_RIDER_DISPATCH_CONTENT_SID`; create it with `npm run twilio:delivery-template -- --rider --create --submit`).
+- A sent order is recorded as arranged by the desk (`delivery.method = 'driver'`), so everything after is the existing desk flow: the diner sees "driver assigned" only once at least one message went out, the restaurant marks it taken, the diner or an administrator closes it. It is never sent twice by retries; the console's re-dispatch (`reason: 'admin'`) resends.
+- Failure is loud: a total failure (or an empty number list) leaves the order `unassigned` with the error in `delivery.request.error`; the sweep retries up to `MAX_SWEEPS`, then only an administrator can resend.
+- Pickup orders and unpaid online orders send nothing, as before. Back to `app` = change the line and restart.
+- `npm test -- tests/riderDispatchMode.test.js` asserts all of it.
+
 ## Six identity systems
 
 They share a process, a database and one signing secret, and nothing else. Do
