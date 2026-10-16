@@ -474,13 +474,15 @@ export default function EditAddressScreen() {
               label="Pincode"
               value={pincode}
               onChangeText={(v) => {
-                setPincode(v);
+                /* Digits only. A pasted "533 101" used to be cut to "533 10"
+                   by the length cap and then refused as not looking right. */
+                setPincode(v.replace(/\D/g, '').slice(0, 6));
                 setPincodeError('');
               }}
               error={pincodeError || undefined}
               placeholder="533101"
               keyboardType="number-pad"
-              maxLength={6}
+              maxLength={7}
             />
             <TextField
               label="Delivery instructions"

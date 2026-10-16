@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { PullRefreshControl } from '@/components/ui/PullRefreshControl';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SegmentedControl, Text, SkeletonRows } from '@/components/ui';
@@ -155,7 +156,7 @@ export default function FavouritesScreen() {
       <ScrollView
         contentContainerStyle={{ paddingBottom: space[8], gap: space[3] }}
         refreshControl={
-          <RefreshControl refreshing={favouritesLoading} onRefresh={refreshFavourites} />
+          <PullRefreshControl onRefresh={refreshFavourites} />
         }
       >
         <View style={{ paddingHorizontal: layout.gutter }}>

@@ -118,6 +118,8 @@ function shortestAngleDelta(fromDeg: number, toDeg: number): number {
 }
 
 const RIDER_ROTATE_MS = 700;
+/** The shortest gap between two redraws of the turning marker — see `useEasedHeading`. */
+const HEADING_FRAME_MS = 66;
 
 /** Eases the rider's marker toward each new `heading` reading instead of
     snapping to it — see `RIDER_MARKER_IMAGE`'s own comment for what this
@@ -138,8 +140,21 @@ function useEasedHeading(heading: number | null | undefined): number {
   const rotAnim = useRef(new Animated.Value(0)).current;
   const [display, setDisplay] = useState(0);
 
+  /*
+   * At most ~15 updates a second, not one per frame. Each update re-renders
+   * this whole map, and a turn used to be ~40 of them per position update —
+   * JS-thread work landing between the taps on the tracking screen. A native
+   * marker turned at 15 fps reads the same. The turn's last value is always
+   * applied (`start` below), so the marker lands exactly where it should.
+   */
+  const lastShown = useRef(0);
   useEffect(() => {
-    const id = rotAnim.addListener(({ value }) => setDisplay(value));
+    const id = rotAnim.addListener(({ value }) => {
+      const now = Date.now();
+      if (now - lastShown.current < HEADING_FRAME_MS) return;
+      lastShown.current = now;
+      setDisplay(value);
+    });
     return () => rotAnim.removeListener(id);
   }, [rotAnim]);
 
@@ -157,7 +172,7 @@ function useEasedHeading(heading: number | null | undefined): number {
       duration: RIDER_ROTATE_MS,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
-    }).start();
+    }).start(() => setDisplay(next));
   }, [heading, rotAnim]);
 
   return ((display % 360) + 360) % 360;

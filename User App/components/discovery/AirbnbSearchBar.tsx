@@ -8,6 +8,7 @@ import {
   View,
   type ViewStyle,
 } from 'react-native';
+import { MAX_FONT_SCALE } from '@/constants/tokens';
 import Animated, {
   FadeIn,
   FadeOut,
@@ -165,6 +166,9 @@ export function AirbnbSearchBar({
         {isEditing ? (
           <View style={styles.inputContainer}>
             <TextInput
+              /* Typed text scales with the system font, capped like every label (see
+                 `MAX_FONT_SCALE`) — uncapped, it outgrew its field at large sizes. */
+              maxFontSizeMultiplier={MAX_FONT_SCALE}
               key={syncKey}
               ref={inputRef}
               defaultValue={text}

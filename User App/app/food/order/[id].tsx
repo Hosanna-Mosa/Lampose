@@ -1,7 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Linking, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Linking, RefreshControl, StyleSheet, View } from 'react-native';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { useReorder } from '@/components/food/useReorder';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -496,7 +497,7 @@ export default function OrderScreen() {
         onBack={() => (placed ? router.replace('/home') : router.back())}
       />
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ padding: layout.gutter, paddingBottom: space[8] * 2, gap: space[3] }}
         refreshControl={
@@ -1089,7 +1090,7 @@ export default function OrderScreen() {
               leaving the diner to find and re-add every dish by hand. */}
           <Button label="Order it again" onPress={() => reorder(order)} />
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </View>
   );
 }

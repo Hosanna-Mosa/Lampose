@@ -1,8 +1,8 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { BackHandler, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Spinner, Text } from '@/components/ui';
@@ -142,6 +142,25 @@ export default function PaymentCheckout() {
   const leaveRef = useRef(leave);
   leaveRef.current = leave;
 
+  /*
+   * Android's back goes through `leave` too, never straight off the stack.
+   *
+   * Popped plainly, it landed on the screen underneath — for a food order, the
+   * payment screen whose cart is already an order, offering to place it again
+   * — while `leave` was still asking the server whether the payment went
+   * through. The swipe back on iOS is switched off for the same reason (see
+   * the `Stack.Screen` below); the header's own back already calls `leave`.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        void leaveRef.current();
+        return true;
+      });
+      return () => sub.remove();
+    }, []),
+  );
+
   useEffect(() => {
     if (!url || done.current) return;
     let cancelled = false;
@@ -172,6 +191,7 @@ export default function PaymentCheckout() {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <Stack.Screen options={{ gestureEnabled: false }} />
         <StandardHeader title="Payment" onBack={leave} />
         <View style={[styles.centre, { padding: layout.gutter, gap: space[3] }]}>
           <Text variant="title2" style={styles.centred}>
@@ -189,6 +209,8 @@ export default function PaymentCheckout() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      {/* No swipe back mid-payment — see the hardware back handler. */}
+      <Stack.Screen options={{ gestureEnabled: false }} />
       <StandardHeader title={heading} onBack={leave} />
 
       <View style={[styles.centre, { padding: layout.gutter, gap: space[3] }]}>

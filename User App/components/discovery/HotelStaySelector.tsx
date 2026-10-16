@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { MAX_FONT_SCALE } from '@/constants/tokens';
 
 import { DateField, Text } from '@/components/ui';
 import { applyFont } from '@/constants/fonts';
@@ -133,6 +134,25 @@ export function HotelStaySelector({ options, value, onChange, joinWindow }: Hote
     : (value.rateQuantity ?? 0);
   const total = active && quantity > 0 ? (active.price as number) * quantity : 0;
 
+  /*
+   * The count box keeps what was TYPED, and only a count inside the owner's
+   * range is handed up.
+   *
+   * It used to clamp every keystroke to the minimum, so with a minimum of 2
+   * nobody could type 12: the "1" became 2 at once and the "2" after it made
+   * 22. Now a count below the minimum shows as typed and leaves the stay
+   * unanswered (`rateQuantity: null` — the request button stays off), and one
+   * above the maximum is still pulled down to it.
+   */
+  const [qtyText, setQtyText] = useState(value.rateQuantity ? String(value.rateQuantity) : '');
+  useEffect(() => {
+    /* A count set from outside is shown; one cleared from outside (a new bed
+       or structure) clears the box — unless what is there is a short count
+       still being typed, which is why it is null in the first place. */
+    if (value.rateQuantity !== null) setQtyText(String(value.rateQuantity));
+    else setQtyText((current) => (current && Number(current) < (active?.min ?? 1) ? current : ''));
+  }, [value.rateQuantity, active?.min]);
+
   /* Blue outline and tint — what `OptionCard accent="link"` gives a chosen
      sharing type, so both pickers on listing detail mark a choice alike. */
   const chip = (selected: boolean) => ({
@@ -265,18 +285,27 @@ export function HotelStaySelector({ options, value, onChange, joinWindow }: Hote
                 />
               ) : (
                 <TextInput
-                  value={value.rateQuantity ? String(value.rateQuantity) : ''}
+                  /* Typed text scales with the system font, capped like every label (see
+                     `MAX_FONT_SCALE`) — uncapped, it outgrew its field at large sizes. */
+                  maxFontSizeMultiplier={MAX_FONT_SCALE}
+                  value={qtyText}
                   onChangeText={(text) => {
-                    const digits = Number(text.replace(/\D/g, ''));
-                    if (!digits) {
-                      set({ rateQuantity: null });
-                      return;
-                    }
+                    const typed = text.replace(/\D/g, '');
+                    const digits = Number(typed);
                     const min = active?.min ?? 1;
                     const max = active?.max ?? digits;
-                    set({ rateQuantity: Math.min(Math.max(digits, min), max) });
+                    if (!digits || digits < min) {
+                      setQtyText(typed);
+                      if (value.rateQuantity !== null) set({ rateQuantity: null });
+                      return;
+                    }
+                    const next = Math.min(digits, max);
+                    setQtyText(String(next));
+                    set({ rateQuantity: next });
                   }}
                   keyboardType="number-pad"
+                  /* Three digits is 999 hours or months — past any stay. */
+                  maxLength={3}
                   placeholder={String(active?.min ?? 1)}
                   placeholderTextColor={colors.textTertiary}
                   style={[applyFont(scale.body.face, styles.input, scale.body.weight), {

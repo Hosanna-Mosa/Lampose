@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -338,7 +338,7 @@ const SHINE_MS = 3800;
  * are facts about a feed already on screen, never a discount, and `FoodHome`
  * is the only place that writes their copy.
  */
-export function PromoBanner({ slides, height, width: widthProp }: PromoBannerProps) {
+export const PromoBanner = memo(function PromoBanner({ slides, height, width: widthProp }: PromoBannerProps) {
   const { space, radius } = useTheme();
   const { width: screenWidth } = useWindowDimensions();
   const width = widthProp ?? screenWidth;
@@ -489,7 +489,7 @@ export function PromoBanner({ slides, height, width: widthProp }: PromoBannerPro
       ) : null}
     </View>
   );
-}
+});
 
 /** One card's own scale/opacity, computed from live scroll position rather
  *  than from a loop of `useAnimatedStyle` calls over `slides.map` — hooks

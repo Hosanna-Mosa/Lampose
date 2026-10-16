@@ -1,7 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, StyleSheet, View } from 'react-native';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text, TextField } from '@/components/ui';
@@ -137,7 +138,7 @@ export default function CancellationRefund() {
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader title="Your refund" actionIcon="close" onAction={() => router.back()} />
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         contentContainerStyle={{ padding: layout.gutter, gap: space[6], paddingBottom: space[8] }}
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -198,6 +199,8 @@ export default function CancellationRefund() {
                   value={accountNumber}
                   onChangeText={(v) => setAccountNumber(v.replace(/[^\d\s]/g, ''))}
                   keyboardType="number-pad"
+              /* 9–18 digits, plus the spaces people group them with. */
+              maxLength={22}
                   error={touched ? errors.accountNumber ?? undefined : undefined}
                 />
                 <TextField
@@ -206,6 +209,9 @@ export default function CancellationRefund() {
                   onChangeText={(v) => setIfsc(v.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
                   placeholder="HDFC0001234"
                   autoCapitalize="characters"
+              /* An IFSC is always 11 characters. */
+              maxLength={11}
+              autoCorrect={false}
                   error={touched ? errors.ifsc ?? undefined : undefined}
                 />
                 {error ? <Text variant="body" color="danger">{error}</Text> : null}
@@ -257,7 +263,7 @@ export default function CancellationRefund() {
             />
           </>
         )}
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </View>
   );
 }

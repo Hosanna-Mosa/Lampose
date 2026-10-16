@@ -1,7 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { PullRefreshControl } from '@/components/ui/PullRefreshControl';
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 
 import { BottomSheet, Button, Checkbox, Icon, InlineAlert, RentDisplay, Text, TextField, useAlert, type IconName, SkeletonDetail } from '@/components/ui';
@@ -44,6 +45,7 @@ import { useListing, useListings, useSaved } from '@/services';
 import { addAddress } from '@/services/api/addresses.api';
 import { ApiError } from '@/services/api/client';
 import { availabilityLabel, isGone } from '@/types/listing';
+import { HEART_REPEAT_MS } from '@/components/discovery/ListingCard';
 import { actions } from '@/constants/actions';
 import { formatRupees } from '@/utils/money';
 import { visitFeeLabel } from '@/utils/visitFee';
@@ -98,7 +100,7 @@ export default function ListingDetail() {
      strip draws. See `useOngoing`. */
   const { blocking } = useOngoing();
 
-  const { listing, isPending, error, notFound, refetch, isFetching } = useListing(id);
+  const { listing, isPending, error, notFound, refetch, isFetching, isPlaceholderData } = useListing(id);
   /* A guest browsing needs no account, so this must not fire an authenticated
      request just to find out a guest has nothing saved. */
   const { isSaved, toggleSaved } = useSaved(status === 'signedIn');
@@ -232,6 +234,20 @@ export default function ListingDetail() {
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [ctaHeight, setCtaHeight] = useState(96);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  /* Stable, so the photo pager is not redrawn on every choice made below it
+     (each dropdown answer re-renders this whole screen). */
+  const openPhoto = useCallback((index: number) => {
+    setGalleryIndex(index);
+    setGalleryOpen(true);
+  }, []);
+  /* The header heart: a double tap saved and at once unsaved. */
+  const lastHeart = useRef(0);
+  const tapHeart = (listingId: string) => {
+    const now = Date.now();
+    if (now - lastHeart.current < HEART_REPEAT_MS) return;
+    lastHeart.current = now;
+    requireSignIn(() => toggleSaved(listingId));
+  };
 
   // Scroll-linked, on the UI thread. A JS round trip per frame tears on the
   // hardware this app targets, so no threshold logic touches component state.
@@ -611,7 +627,7 @@ export default function ListingDetail() {
         title={listing.name}
         scrollY={scrollY}
         onBack={() => goBack()}
-        onAction={() => listing && requireSignIn(() => toggleSaved(listing.id))}
+        onAction={() => listing && tapHeart(listing.id)}
         actionIcon="heart"
         actionActive={saved}
       />
@@ -621,13 +637,10 @@ export default function ListingDetail() {
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: ctaHeight + space[6] }}
-        refreshControl={
-          <RefreshControl
-            refreshing={isFetching && !isPending}
-            onRefresh={() => refetch()}
-            tintColor={colors.brand}
-          />
-        }
+        /* For a pull only. Bound to `isFetching`, it also spun for the fetch
+           behind the card's copy from the feed and for the refetch each time
+           this screen came back into focus. */
+        refreshControl={<PullRefreshControl onRefresh={() => refetch()} />}
       >
         <PhotoHero scrollY={scrollY}>
           {/* The tinted block stays as the ground, so a photograph that is
@@ -644,14 +657,7 @@ export default function ListingDetail() {
             carries its own tap instead, which keeps both — swipe to see the
             next, tap to open it full screen.
           */}
-          <HeroCarousel
-            photos={photos}
-            height={heroHeight}
-            onPressPhoto={(index) => {
-              setGalleryIndex(index);
-              setGalleryOpen(true);
-            }}
-          />
+          <HeroCarousel photos={photos} height={heroHeight} onPressPhoto={openPhoto} />
         </PhotoHero>
 
         {/*

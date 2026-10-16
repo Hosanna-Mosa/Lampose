@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import {
   Button, Checkbox, DateField, Skeleton, Stepper, Text, TextField, TimeField, useAlert,
@@ -17,6 +17,7 @@ import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 import { ApiError } from '@/services/api/client';
 import { bookTable, type BookTableRequest } from '@/services/api/tableBookings.api';
 import { useKitchen } from '@/services/hooks/useFood';
+import { tenDigitMobile } from '@/types/auth';
 import { useRememberTableBooking, useTableChoices, useTableSlots } from '@/services/hooks/useTableBookings';
 import {
   AREA_LABEL,
@@ -193,6 +194,9 @@ export default function BookTableScreen() {
   /* One request at a time. State alone lets two taps in the same frame both
      through, and the second is refused ALREADY_BOOKED by the first. */
   const inFlight = useRef(false);
+  /* "Next" on the guest's name goes to their mobile. It showed a Next key and
+     did nothing with it — on Android the keyboard just closed. */
+  const guestPhoneRef = useRef<TextInput>(null);
 
   const grid = useTableSlots(id, date, guests);
   /* A table number, or null for any table. */
@@ -638,19 +642,23 @@ export default function BookTableScreen() {
                 autoCapitalize="words"
                 maxLength={60}
                 returnKeyType="next"
+                submitBehavior="submit"
+                onSubmitEditing={() => guestPhoneRef.current?.focus()}
               />
               <TextField
+                ref={guestPhoneRef}
                 label="Guest's mobile"
                 value={guestPhone}
                 onChangeText={(value) => {
-                  setGuestPhone(value.replace(/\D/g, '').slice(0, 10));
+                  setGuestPhone(tenDigitMobile(value));
                   if (errors.guestPhone) setErrors((current) => ({ ...current, guestPhone: undefined }));
                 }}
                 error={errors.guestPhone}
                 helper="The restaurant may call them about the table."
                 prefix="+91"
                 keyboardType="phone-pad"
-                maxLength={10}
+                /* Room for a pasted "+91 98765 43210" — see `tenDigitMobile`. */
+                maxLength={16}
               />
             </View>
           ) : needOwnName ? (

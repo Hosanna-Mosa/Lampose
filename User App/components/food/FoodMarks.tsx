@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
@@ -15,6 +15,7 @@ import { Icon, Text } from '@/components/ui';
 import { useTheme } from '@/context/ThemeContext';
 import type { Diet } from '@/types/food';
 import { DIET_LABEL } from '@/types/food';
+import { sizedImage } from '@/utils/image';
 
 /* ------------------------------------------------------------------ *
  * Diet mark
@@ -326,6 +327,19 @@ export function FoodPhoto({
   height, width = '100%', radius: r, uri, label, style, muted, brandFallback,
 }: FoodPhotoProps) {
   const { colors, radius } = useTheme();
+  const { width: windowWidth } = useWindowDimensions();
+  /*
+   * Asked for at the size it is drawn, as every stay photo already is — see
+   * `sizedImage`. Kitchens upload straight from a phone, so a 64pt menu
+   * thumbnail was decoding a full-size camera photo, several MB of bitmap per
+   * row; that decoding is what made the food feed and the menus stutter. A
+   * width that is not a number ("100%") is at most the screen's. Only a
+   * Cloudinary URL is rewritten; anything else is returned as it came.
+   */
+  const drawnWidth = typeof width === 'number' ? width : windowWidth;
+  const remote = typeof uri === 'string'
+    ? sizedImage(uri, drawnWidth, typeof height === 'number' ? height : undefined)
+    : undefined;
   /* Only needed for the brand fallback: the stripes show through a dead URL on
      their own, the logo has to be swapped in. Reset when the URL changes, so a
      recycled list cell does not carry one kitchen's failure to the next. */
@@ -367,7 +381,7 @@ export function FoodPhoto({
         </View>
       ) : uri ? (
         <Image
-          source={typeof uri === 'string' ? { uri } : uri}
+          source={remote !== undefined ? { uri: remote } : uri}
           style={[StyleSheet.absoluteFill, muted ? styles.mutedPhoto : null]}
           contentFit="cover"
           /* Cached to disk because a student scrolls the same six kitchens

@@ -747,6 +747,9 @@ const styles = StyleSheet.create({
      chip has less room than one that owns the line, and all three section
      headings move together so they stay one rank. */
   cardHeaderTitle: {
+    /* Truncates beside the status chip at large font sizes rather than
+       pushing the chip off the card. */
+    flexShrink: 1,
     fontSize: 14,
     fontWeight: '800',
   },

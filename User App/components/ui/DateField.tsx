@@ -105,7 +105,11 @@ export function DateField({
   /* What the dialog opens ON when nothing is chosen. The earliest allowed day
      rather than today, so a picker bounded to a future window does not open on
      a month where every day is greyed out. */
-  const initial = selected ?? min ?? new Date();
+  /* Inside the window, too: a chosen date the window has since moved past
+     (a check-out picked before the check-in moved later) opened the picker on
+     a day it then refused. */
+  const unclamped = selected ?? min ?? new Date();
+  const initial = min && unclamped < min ? min : max && unclamped > max ? max : unclamped;
 
   const commit = (next: Date) => {
     onChange(formatDay(next));

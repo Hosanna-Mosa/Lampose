@@ -79,6 +79,20 @@ export default function CartScreen() {
   const [railTab, setRailTab] = useState(POPULAR);
   const scrollRef = useRef<ScrollView>(null);
 
+  /*
+   * After a line is taken out, the line below slides up into its place — under
+   * the same thumb. A quick second tap on "×" then took a dish off that line
+   * too, one nobody had aimed at. So for a moment after a removal, a DECREASE
+   * on any line is ignored; a "+" always goes through.
+   */
+  const lastRemoval = useRef(0);
+  const changeLineQty = (key: string, current: number, next: number) => {
+    const now = Date.now();
+    if (next < current && now - lastRemoval.current < 600) return;
+    if (next <= 0) lastRemoval.current = now;
+    setQty(key, next);
+  };
+
   const kitchen = cartKitchen;
 
   /* The header shows where this is going, so a cart opened with nothing
@@ -341,7 +355,7 @@ export default function CartScreen() {
 
               <AddControl
                 value={line.qty}
-                onChange={(next) => setQty(line.key, next)}
+                onChange={(next) => changeLineQty(line.key, line.qty, next)}
                 accessibilityLabel={line.dish.name}
               />
 

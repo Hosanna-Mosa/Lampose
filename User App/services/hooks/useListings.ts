@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { InteractionManager } from 'react-native';
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 import type { StayCategory } from '@/constants/tokens';
 import type { Locality } from '@/types/auth';
@@ -273,13 +273,40 @@ export function useListingReviews(id: string | undefined) {
   };
 }
 
+/**
+ * The listing as a feed already holds it, if any feed in the cache does.
+ *
+ * The feed and the detail endpoint build each listing with the same
+ * `formatListing` + `withAvailability` on the server and the same `toListing`
+ * here, so the card's copy IS the detail screen's listing. Shown while the
+ * fresh copy is on its way, it turns the tap on a card into a page that opens
+ * at once instead of a skeleton held for a round trip. The fetch still runs
+ * and replaces it.
+ */
+function listingFromFeeds(client: QueryClient, id: string): Listing | undefined {
+  for (const [, data] of client.getQueriesData<unknown>({ queryKey: ['listings'] })) {
+    if (!data || typeof data !== 'object') continue;
+    const pages = (data as { pages?: unknown }).pages;
+    const results = (Array.isArray(pages) ? pages : [data]) as Partial<ListingsResult>[];
+    for (const result of results) {
+      const found = Array.isArray(result?.listings)
+        ? result.listings.find((listing) => listing?.id === id)
+        : undefined;
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
 export function useListing(id: string | undefined) {
-  const query = useQuery({
+  const client = useQueryClient();
+  const query = useQuery<Listing>({
     queryKey: queryKeys.listing(id ?? ''),
     queryFn: ({ signal }) => fetchListing(id as string, signal),
     enabled: Boolean(id),
     staleTime: STALE_MS,
     retry,
+    placeholderData: (): Listing | undefined => (id ? listingFromFeeds(client, id) : undefined),
   });
 
   return {

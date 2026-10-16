@@ -211,7 +211,9 @@ export async function locateMe(): Promise<LocatedAddress> {
       landmark,
       city: resolvedCity,
       state: rawState,
-      pincode: (first.postalCode || '').trim(),
+      /* Digits only: some geocoders return "533 101", which the address form
+         would then refuse as not six digits. */
+      pincode: (first.postalCode || '').replace(/\D/g, '').slice(0, 6),
       area: detectedArea,
       formattedAddress,
     },

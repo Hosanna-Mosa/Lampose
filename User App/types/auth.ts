@@ -121,6 +121,24 @@ export function matchesQuery(query: string, name: string, aliases: readonly stri
  * Phone and code
  * ------------------------------------------------------------------ */
 
+/**
+ * What was typed, pasted or autofilled into a mobile field, as its ten digits.
+ *
+ * The phone's autofill and a number copied from contacts both arrive as
+ * "+91 98765 43210" or "098765 43210", not as ten digits. Taking the first ten
+ * digits of either gave "9198765432" — a real-looking, wrong number. So the
+ * country code comes off when the digits are a whole number WITH it (12, from
+ * 91), and the trunk 0 when they are eleven starting with 0. A number that
+ * simply starts with 91 and is still being typed is left alone: only twelve or
+ * more digits can be "91 + a number".
+ */
+export function tenDigitMobile(input: string): string {
+  let digits = input.replace(/\D/g, '');
+  if (digits.length >= 12 && digits.startsWith('91')) digits = digits.slice(2);
+  else if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1);
+  return digits.slice(0, 10);
+}
+
 /** Indian mobile numbers start with 6, 7, 8 or 9. */
 export function isValidIndianMobile(digits: string): boolean {
   return /^[6-9]\d{9}$/.test(digits);

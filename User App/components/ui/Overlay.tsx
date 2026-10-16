@@ -35,9 +35,8 @@ export type BottomSheetProps = {
   footer?: React.ReactNode;
 };
 
-/** The slide in, and the slide out. Out is a touch quicker: leaving is not news. */
+/** The slide in. There is no slide out — see the close in `BottomSheet`. */
 const OPEN_MS = 280;
-const CLOSE_MS = 220;
 const FADE_MS = 160;
 
 /**
@@ -59,8 +58,8 @@ const FADE_MS = 160;
  * Android's new architecture can stall partway inside a native modal, leaving
  * a sheet frozen half on screen. And an exit animation could never play: the
  * modal unmounted the instant `visible` went false. Now `progress` runs 0 → 1
- * on open and 1 → 0 on close, the scrim and the sheet both read it, and the
- * modal stays mounted until the slide out has actually finished.
+ * on open, the scrim and the sheet both read it. Closing unmounts at once, so
+ * the screen underneath takes the very next tap.
  */
 export function BottomSheet({ visible, onClose, title, children, footer }: BottomSheetProps) {
   const { colors, space, radius, layout } = useTheme();
@@ -88,14 +87,19 @@ export function BottomSheet({ visible, onClose, title, children, footer }: Botto
       });
       return;
     }
-    progress.value = withTiming(
-      0,
-      { duration: reduceMotion ? FADE_MS : CLOSE_MS, easing: easing.exit },
-      (finished) => {
-        /* Not when a reopen interrupted it — that one is keeping it up. */
-        if (finished) runOnJS(setMounted)(false);
-      },
-    );
+    /*
+     * Closing takes the modal down AT ONCE, with no slide out.
+     *
+     * A modal is its own native window, and while it is up it takes every
+     * touch on the screen — `pointerEvents` cannot pass one through it. The
+     * slide out kept that window up, invisible, for `CLOSE_MS` and then until
+     * the JS thread got round to unmounting it, so the tap that came straight
+     * after a choice ("Stay type", then "How many months") landed on a scrim
+     * nobody could see and did nothing. That was the "tap it twice" on every
+     * dropdown. The page under a sheet must be live the moment it closes.
+     */
+    progress.value = 0;
+    setMounted(false);
   }, [visible, reduceMotion, progress, translateY]);
 
   const pan = Gesture.Pan()

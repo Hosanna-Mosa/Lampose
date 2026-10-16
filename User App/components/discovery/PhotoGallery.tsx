@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import {
   Modal,
@@ -96,6 +96,17 @@ export function PhotoGallery({
   const total = groups.reduce((sum, item) => sum + item.count, 0);
   const seenBefore = groups.slice(0, groupIndex).reduce((sum, item) => sum + item.count, 0);
 
+  /*
+   * Opening on the photo that was tapped. `contentOffset` below does it on
+   * iOS only — Android ignores the prop — so on Android a tap on photo 3
+   * opened the gallery on photo 1 with the counter saying "3 /". The pager is
+   * scrolled there itself once it has a size, on both platforms.
+   */
+  const pagerRef = useRef<ScrollView>(null);
+  const placePager = () => {
+    if (initialIndex > 0) pagerRef.current?.scrollTo({ x: initialIndex * width, y: 0, animated: false });
+  };
+
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     setPageIndex(Math.round(event.nativeEvent.contentOffset.x / width));
   };
@@ -128,6 +139,8 @@ export function PhotoGallery({
           key={`${group.id}-${initialIndex}`}
           horizontal
           pagingEnabled
+          ref={pagerRef}
+          onLayout={placePager}
           contentOffset={{ x: initialIndex * width, y: 0 }}
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={handleScroll}

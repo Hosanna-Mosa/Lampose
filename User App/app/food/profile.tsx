@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { PullRefreshControl } from '@/components/ui/PullRefreshControl';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text } from '@/components/ui';
@@ -50,7 +51,7 @@ export default function FoodProfileScreen() {
       <ScrollView
         contentContainerStyle={{ padding: layout.gutter, gap: space[5], paddingBottom: space[8] }}
         refreshControl={
-          <RefreshControl refreshing={favouritesLoading} onRefresh={refreshFavourites} tintColor={colors.brand} />
+          <PullRefreshControl onRefresh={refreshFavourites} />
         }
       >
         <View style={[styles.identity, { gap: space[3] }]}>

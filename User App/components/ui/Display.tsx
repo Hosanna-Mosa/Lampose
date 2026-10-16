@@ -6,6 +6,7 @@ import { Icon } from './Icon';
 import { Text } from './Text';
 import { usePressAnimation } from '@/hooks/usePressAnimation';
 import { useTheme } from '@/context/ThemeContext';
+import { sizedImage } from '@/utils/image';
 
 /* ------------------------------------------------------------------ *
  * Badge
@@ -129,7 +130,8 @@ export function Avatar({ name, uri, size = 40, verified = false }: AvatarProps) 
         ]}
       >
         {uri ? (
-          <Image source={{ uri }} style={{ width: size, height: size }} resizeMode="cover" />
+          /* At the size drawn, not the upload — see `sizedImage`. */
+          <Image source={{ uri: sizedImage(uri, size, size) }} style={{ width: size, height: size }} resizeMode="cover" />
         ) : (
           <Text variant={size >= 40 ? 'bodyStrong' : 'numMeta'} style={{ color: colors.info.ink }}>
             {initials}

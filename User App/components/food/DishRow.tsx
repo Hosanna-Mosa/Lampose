@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from '@/components/ui';
@@ -34,8 +34,16 @@ export type DishRowProps = {
   /** The kitchen's name on the feed; the description on a menu. */
   meta?: string;
   qty: number;
-  onQtyChange: (qty: number) => void;
+  onQtyChange?: (qty: number) => void;
   onPress?: () => void;
+  /**
+   * The same two handlers, handed the dish — so a menu can pass ONE stable
+   * function to every row and `memo` can skip the rows that did not change.
+   * With a fresh closure per row per render, every "+" on a fifty-dish menu
+   * redrew all fifty before the count could change. Win over the plain ones.
+   */
+  onQtyChangeFor?: (dish: Dish, qty: number) => void;
+  onOpen?: (dish: Dish) => void;
   /** Sold out, or the kitchen is shut — the row stays, the control explains. */
   disabled?: boolean;
   reason?: string;
@@ -58,18 +66,23 @@ export type DishRowProps = {
  * edge; a student looking for something under ₹100 runs it down the right. Any
  * row that reorders those two breaks both passes at once.
  */
-export function DishRow({
+export const DishRow = memo(function DishRow({
   dish,
   layout = 'menu',
   meta,
   qty,
-  onQtyChange,
-  onPress,
+  onQtyChange: onQtyChangeOwn,
+  onPress: onPressOwn,
+  onQtyChangeFor,
+  onOpen,
   disabled,
   reason,
   favouritable = false,
 }: DishRowProps) {
   const { colors, space, radius } = useTheme();
+  const onQtyChange = (next: number) =>
+    onQtyChangeFor ? onQtyChangeFor(dish, next) : onQtyChangeOwn?.(next);
+  const onPress = onOpen ? () => onOpen(dish) : onPressOwn;
 
   const soldOut = disabled || dish.soldOut;
   const soldOutReason = dish.soldOut ? 'Sold out' : reason;
@@ -225,7 +238,7 @@ export function DishRow({
       </View>
     </Pressable>
   );
-}
+});
 
 /**
  * The rail tile — a dish in a horizontal carousel.

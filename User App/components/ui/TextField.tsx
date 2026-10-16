@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View, type TextInputProps, type ViewStyle } from 'react-native';
+import { MAX_FONT_SCALE } from '@/constants/tokens';
 
 import { Icon } from './Icon';
 import { Text } from './Text';
@@ -52,11 +53,23 @@ export function TextField({
   ref,
   containerStyle,
   value,
+  onFocus,
+  onBlur,
   ...rest
 }: TextFieldProps) {
   const scale = useTypeScale();
   const { colors, space, radius, touch } = useTheme();
   const [focused, setFocused] = useState(false);
+  /* Lifted out of `rest`: spread after the field's own handlers, a caller's
+     `onFocus` REPLACED them and the focus ring stopped following the field. */
+  const handleFocus: TextInputProps['onFocus'] = (event) => {
+    setFocused(true);
+    onFocus?.(event);
+  };
+  const handleBlur: TextInputProps['onBlur'] = (event) => {
+    setFocused(false);
+    onBlur?.(event);
+  };
 
   const inert = disabled || readOnly;
   const hasError = Boolean(error);
@@ -127,6 +140,12 @@ export function TextField({
         ) : null}
 
         <TextInput
+
+          /* Typed text scales with the system font, capped like every label (see
+
+             `MAX_FONT_SCALE`) — uncapped, it outgrew its field at large sizes. */
+
+          maxFontSizeMultiplier={MAX_FONT_SCALE}
           ref={ref}
           value={value}
           editable={!inert}
@@ -134,10 +153,14 @@ export function TextField({
           maxLength={maxLength}
           placeholderTextColor={colors.textTertiary}
           selectionColor={colors.brand}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           style={[
             styles.input,
+            /* A text area's input fills its box. It used to be one line tall
+               inside a 96pt frame, so a tap on the empty lower part of
+               "Tell us everything" landed on the frame and did nothing. */
+            multiline ? { alignSelf: 'stretch', minHeight: 96 - space[3] * 2 } : null,
             {
               color: inert ? colors.textSecondary : colors.textPrimary,
               /* Family AND size from the SCOPED scale — a stay field is the
@@ -223,11 +246,22 @@ export function SearchField({
   containerStyle,
   shape = 'rect',
   onSubmitPress,
+  onFocus,
+  onBlur,
   ...rest
 }: SearchFieldProps) {
   const scale = useTypeScale();
   const { colors, space, radius, touch } = useTheme();
   const [focused, setFocused] = useState(false);
+  /* Composed, not overridden — see the same note in `TextField`. */
+  const handleFocus: TextInputProps['onFocus'] = (event) => {
+    setFocused(true);
+    onFocus?.(event);
+  };
+  const handleBlur: TextInputProps['onBlur'] = (event) => {
+    setFocused(false);
+    onBlur?.(event);
+  };
 
   const pill = shape === 'pill';
   /* The disc is inset rather than gutter-aligned, so the right padding
@@ -255,13 +289,16 @@ export function SearchField({
     >
       <Icon name="search" size={20} color={focused ? colors.brandInk : colors.textTertiary} />
       <TextInput
+        /* Typed text scales with the system font, capped like every label (see
+           `MAX_FONT_SCALE`) — uncapped, it outgrew its field at large sizes. */
+        maxFontSizeMultiplier={MAX_FONT_SCALE}
         value={value}
         placeholderTextColor={colors.textTertiary}
         selectionColor={colors.brand}
         returnKeyType="search"
         numberOfLines={1}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
         style={[
           styles.input,
           {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
@@ -40,6 +40,28 @@ export function AddControl({
   const width = size === 'lg' ? 118 : 88;
   const glyph = size === 'lg' ? 'title1' : 'title2';
 
+  /*
+   * The count this control last ASKED for, not only the one it was last given.
+   *
+   * Each tap used to compute from `value`, the prop — which only moves once the
+   * cart has re-rendered the screen. Two quick taps on "+" both sent value + 1,
+   * so 1 → + + gave 2 and the second tap was lost (the same on "−"). Building
+   * on the last request instead makes every tap count, whatever the parent is
+   * doing with them.
+   *
+   * Re-aligned with the real `value` on EVERY render, not only when it moves:
+   * a parent that refuses a step (the cart's own per-line cap) leaves `value`
+   * where it was, and a request left ahead of it would make the next "−" look
+   * dead. Taps that land before the next render — the lost-tap case — still
+   * build on one another.
+   */
+  const requested = useRef(value);
+  requested.current = value;
+  const ask = (next: number) => {
+    requested.current = next;
+    onChange(next);
+  };
+
   if (disabled) {
     return (
       <View
@@ -66,21 +88,24 @@ export function AddControl({
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-    onChange(1);
+    /* A second tap on "Add +" before the stepper has replaced it is a "+". */
+    ask(requested.current > 0 ? Math.min(max, requested.current + 1) : 1);
   };
 
   const handleIncrement = () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-    onChange(Math.min(max, value + 1));
+    if (requested.current >= max) return;
+    ask(Math.min(max, requested.current + 1));
   };
 
   const handleDecrement = () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-    onChange(value - 1);
+    if (requested.current <= 0) return;
+    ask(requested.current - 1);
   };
 
   if (value === 0) {

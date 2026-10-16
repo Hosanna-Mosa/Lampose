@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { memo, useState } from 'react';
 import { Image } from 'expo-image';
 import {
   Pressable,
@@ -57,7 +57,7 @@ export type HeroCarouselProps = {
   onPressPhoto?: (index: number) => void;
 };
 
-export function HeroCarousel({ photos, height, onPressPhoto }: HeroCarouselProps) {
+export const HeroCarousel = memo(function HeroCarousel({ photos, height, onPressPhoto }: HeroCarouselProps) {
   const { colors, space, radius } = useTheme();
   const { width } = useWindowDimensions();
   const [index, setIndex] = useState(0);
@@ -164,7 +164,7 @@ export function HeroCarousel({ photos, height, onPressPhoto }: HeroCarouselProps
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   dots: {

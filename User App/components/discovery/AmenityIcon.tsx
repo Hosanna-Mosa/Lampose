@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Icon, Text, type IconName } from '@/components/ui';
@@ -230,7 +230,7 @@ export type AmenityGridProps = {
  * long free-text amenity at a large font scale rather than for the ordinary
  * case.
  */
-export function AmenityGrid({ amenities, category, initial = 6 }: AmenityGridProps) {
+export const AmenityGrid = memo(function AmenityGrid({ amenities, category, initial = 6 }: AmenityGridProps) {
   const { space } = useTheme();
   const [expanded, setExpanded] = useState(false);
 
@@ -335,7 +335,7 @@ export function AmenityGrid({ amenities, category, initial = 6 }: AmenityGridPro
       ) : null}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   inline: { flexDirection: 'row', alignItems: 'center' },

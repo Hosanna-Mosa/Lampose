@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { PullRefreshControl } from '@/components/ui/PullRefreshControl';
 /*
  * The library's KeyboardAvoidingView, not React Native's.
  *
@@ -298,11 +299,7 @@ export default function TicketThread() {
         contentContainerStyle={{ padding: layout.gutter, gap: space[4], paddingBottom: space[6] }}
         keyboardShouldPersistTaps="handled"
         refreshControl={
-          <RefreshControl
-            refreshing={isFetching && !isPending}
-            onRefresh={() => refetch()}
-            tintColor={colors.brand}
-          />
+          <PullRefreshControl onRefresh={() => refetch()} />
         }
       >
         {/* The outcome, restated at the top so it survives a long thread. */}

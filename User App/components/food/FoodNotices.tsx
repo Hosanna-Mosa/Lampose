@@ -118,7 +118,13 @@ export function FoodNotice({
         </Text>
       ) : null}
       {actionLabel && onAction ? (
-        <Pressable onPress={onAction} accessibilityRole="button" style={{ marginTop: space[1], minHeight: 28, justifyContent: 'center' }}>
+        <Pressable
+          onPress={onAction}
+          accessibilityRole="button"
+          /* A 28pt line of text; the slop takes the target to 44. */
+          hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+          style={{ marginTop: space[1], minHeight: 28, justifyContent: 'center' }}
+        >
           <Text variant="bodyStrong" style={{ color: palette.ink, textDecorationLine: 'underline' }}>
             {actionLabel}
           </Text>
