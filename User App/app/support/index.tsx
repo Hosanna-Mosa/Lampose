@@ -1,10 +1,10 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Text } from '@/components/ui';
+import { Button, Text, SkeletonRows } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { TicketRow } from '@/components/lifecycle';
 import { emptyStates } from '@/constants/copy';
@@ -80,9 +80,7 @@ export default function SupportList() {
         }
       >
         {isPending ? (
-          <View style={styles.centre}>
-            <ActivityIndicator color={colors.brand} />
-          </View>
+          <SkeletonRows count={4} lead="none" card label="Loading your requests" />
         ) : error ? (
           /* A failed fetch is not an empty queue. Offering "New support
              request" as the only action under a load failure would send

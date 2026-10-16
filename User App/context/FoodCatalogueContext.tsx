@@ -16,14 +16,14 @@
  *
  * ## What is loaded, and when
  *
- * The kitchen feed, once, on mount — and then each listed kitchen's menu, so
- * the home feed can show dishes as well as kitchens. That is one request per
- * kitchen, which is right for the handful of approved restaurants this
- * currently serves and will not be at a hundred. The fix when that day comes
- * is a `GET /food-partners/dishes` on the backend that projects across
- * kitchens; it is deliberately not built yet, because a feed endpoint designed
- * against no real traffic is a guess. The per-kitchen queries are individually
- * cached, so opening a kitchen page after browsing the feed costs nothing.
+ * The kitchen feed, ten at a time (`useKitchenFeed`), the next ten when the
+ * home screen nears its end — and each LOADED kitchen's menu, so the feed can
+ * show dishes as well as kitchens. That is one request per kitchen on screen,
+ * not per kitchen in the city. Search, Dine-in and Favourites need the whole
+ * set, so they call `loadAll` and the rest of the pages come in behind them.
+ * The fix when that stops scaling is a `GET /food-partners/dishes` on the
+ * backend that projects across kitchens. The per-kitchen queries are
+ * individually cached, so opening a kitchen page after browsing costs nothing.
  *
  * ## Nothing is invented
  *
@@ -39,12 +39,12 @@
  * different sentences and only one of them needs a retry button.
  */
 import { useQueries } from '@tanstack/react-query';
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAppState } from '@/context/AppStateContext';
 import { fetchKitchen } from '@/services/api/food.api';
 import { openNowOf } from '@/services/adapters/food.adapter';
-import { useKitchens } from '@/services/hooks/useFood';
+import { useKitchenFeed } from '@/services/hooks/useFood';
 import { FOOD_MODE } from '@/constants/env';
 import { queryKeys } from '@/services/hooks/keys';
 import type { Dish, Kitchen } from '@/types/food';
@@ -65,6 +65,14 @@ type FoodCatalogue = {
    */
   error: string | null;
   refetch: () => void;
+  /** The server holds kitchens past the ones loaded. */
+  hasMore: boolean;
+  /** True while the next page is in flight. */
+  loadingMore: boolean;
+  /** Ask for the next page. A no-op while one is already coming or none is left. */
+  fetchMore: () => void;
+  /** Page through to the end — for screens that search or filter the whole set. */
+  loadAll: () => void;
 
   findKitchen: (id: string) => Kitchen | undefined;
   findDish: (id: string) => Dish | undefined;
@@ -76,8 +84,16 @@ type FoodCatalogue = {
 
 const CatalogueContext = createContext<FoodCatalogue | null>(null);
 
-/** How many kitchens' menus are pulled for the feed. See the header. */
-const MENU_FANOUT_CAP = 25;
+/**
+ * How often a loaded menu is re-read. Slower than the feed's minute on
+ * purpose: whether a kitchen is OPEN comes from the feed row (see the merge
+ * below), so a menu poll only refreshes dishes — and a sold-out dish is also
+ * caught by the kitchen page, which re-reads its menu when opened, and by the
+ * server at checkout.
+ */
+const MENU_REFRESH_MS = 5 * 60_000;
+
+const EMPTY_KITCHENS: readonly Kitchen[] = [];
 
 /** The same array back for as long as every element is the same reference —
  *  `useMemo` with element-wise equality, for a list rebuilt every render. */
@@ -105,33 +121,44 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
      the kitchen feed — and up to 25 menus — every minute, on every phone,
      for a screen nobody could open. */
   const foodShown = FOOD_MODE === 'dev';
-  const feed = useKitchens({
+  const feed = useKitchenFeed({
     enabled: foodShown,
-    limit: 50,
     partnerType: 'food',
     lat: near?.lat ?? null,
     lng: near?.lng ?? null,
     radiusKm: near?.radiusKm ?? null,
   });
 
-  const feedKitchens = useMemo<readonly Kitchen[]>(() => feed.data ?? [], [feed.data]);
+  /* Every loaded page in the server's order, de-duplicated by id: a kitchen
+     approved while somebody scrolls shifts every offset by one, and the row on
+     the edge would otherwise arrive twice. `pageOf` remembers which page each
+     came on, so sorting below never moves a card that is already on screen. */
+  const pages = feed.data?.pages;
+  const { feedKitchens, pageOf } = useMemo(() => {
+    const order = new Map<string, number>();
+    if (!pages) return { feedKitchens: EMPTY_KITCHENS, pageOf: order };
+    const all: Kitchen[] = [];
+    pages.forEach((page, index) => {
+      for (const kitchen of page.kitchens) {
+        if (order.has(kitchen.id)) continue;
+        order.set(kitchen.id, index);
+        all.push(kitchen);
+      }
+    });
+    return { feedKitchens: all as readonly Kitchen[], pageOf: order };
+  }, [pages]);
 
   /*
-   * One query per kitchen, each keyed exactly as `useKitchen` keys it, so a
-   * kitchen page opened later is served from this same cache entry.
-   *
-   * Polled on the same interval as the feed, for the reason `useFood.ts`
-   * gives: `kitchenOpen` below prefers THIS response over the feed's own row
-   * once it has arrived (see the merge just under this), so a kitchen that
-   * switched itself closed would otherwise keep reading as open from this
-   * query's first, unrefreshed answer for as long as the app stays open.
+   * One query per LOADED kitchen, each keyed exactly as `useKitchen` keys it,
+   * so a kitchen page opened later is served from this same cache entry. The
+   * next page of the feed brings ten more menus with it, never fifty at once.
    */
   const menuQueries = useQueries({
-    queries: feedKitchens.slice(0, MENU_FANOUT_CAP).map((kitchen) => ({
+    queries: feedKitchens.map((kitchen) => ({
       queryKey: queryKeys.foodKitchen(kitchen.id),
       queryFn: () => fetchKitchen(kitchen.id),
       staleTime: 60_000,
-      refetchInterval: 60_000,
+      refetchInterval: MENU_REFRESH_MS,
       enabled: foodShown,
     })),
   });
@@ -152,7 +179,9 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
   /* The detail response carries the section list, which a feed row cannot —
      so the kitchen from the detail call supersedes the one from the feed
      wherever it has arrived. The feed's `distanceKm` is preserved, because
-     only the feed was asked with a pin. */
+     only the feed was asked with a pin, and so is its `openNow`: the feed is
+     re-read every minute and the menus only every five, so a kitchen that
+     switched itself closed reads as closed within the minute. */
   const kitchens = useMemo<readonly Kitchen[]>(() => {
     const bySections = new Map<string, Kitchen>();
     for (const data of menuData) {
@@ -161,7 +190,14 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
     }
     return feedKitchens.map((row) => {
       const detailed = bySections.get(row.id);
-      return detailed ? { ...detailed, walkMinutes: row.walkMinutes, deliveryMinutes: row.deliveryMinutes } : row;
+      if (!detailed) return row;
+      const openNow = openNowOf(row);
+      return {
+        ...detailed,
+        walkMinutes: row.walkMinutes,
+        deliveryMinutes: row.deliveryMinutes,
+        ...(openNow === undefined ? null : { openNow }),
+      };
     });
   }, [feedKitchens, menuData]);
 
@@ -190,29 +226,46 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
    */
   const kitchenOpen = useCallback((kitchen: Kitchen) => openNowOf(kitchen) ?? false, []);
 
-  /* Open kitchens first, then by how far away they are. With no pin every
-     `walkMinutes` is 0 and the sort degrades to the server's order, which is
-     the newest first — honest, and stable. */
+  /* Open kitchens first, then by how far away they are — WITHIN each page.
+     Sorting across pages would slot an open kitchen from page two above a
+     closed one from page one, so every page that arrived would shuffle the
+     cards the student was already reading. With no pin every `walkMinutes` is
+     0 and the sort degrades to the server's order, which is the newest
+     first — honest, and stable. */
   const kitchensFor = useCallback(
     () =>
       [...kitchens].sort((a, b) => {
+        const pageDelta = (pageOf.get(a.id) ?? 0) - (pageOf.get(b.id) ?? 0);
+        if (pageDelta !== 0) return pageDelta;
         const openDelta = Number(kitchenOpen(b)) - Number(kitchenOpen(a));
         return openDelta !== 0 ? openDelta : a.walkMinutes - b.walkMinutes;
       }),
-    [kitchens, kitchenOpen],
+    [kitchens, kitchenOpen, pageOf],
   );
 
   const dishesFor = useCallback(() => [...dishes].sort((a, b) => a.price - b.price), [dishes]);
 
-  /* Every dish this kitchen cooks, in the order it arranged its own menu. */
-  const menuFor = useCallback(
-    (kitchen: Kitchen) => {
-      const mine = dishes.filter((dish) => dish.kitchenId === kitchen.id);
-      return [...mine].sort(
+  /* Every dish this kitchen cooks, in the order it arranged its own menu.
+     Grouped and sorted once per catalogue change: the feed asks this three
+     times per card per render (the highlight, pure veg, under ₹100), and a
+     filter over every loaded dish each time was the feed's slowest line. */
+  const menus = useMemo(() => {
+    const byKitchen = new Map<string, Dish[]>();
+    for (const dish of dishes) {
+      const list = byKitchen.get(dish.kitchenId);
+      if (list) list.push(dish);
+      else byKitchen.set(dish.kitchenId, [dish]);
+    }
+    for (const kitchen of kitchens) {
+      byKitchen.get(kitchen.id)?.sort(
         (a, b) => kitchen.sections.indexOf(a.section) - kitchen.sections.indexOf(b.section),
       );
-    },
-    [dishes],
+    }
+    return byKitchen;
+  }, [dishes, kitchens]);
+  const menuFor = useCallback(
+    (kitchen: Kitchen) => [...(menus.get(kitchen.id) ?? [])],
+    [menus],
   );
 
   /* Stable for the provider's lifetime — the queries it calls are read at the
@@ -227,6 +280,20 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
     latest.current.menuQueries.forEach((query) => void query.refetch());
   }, []);
   const loadingMenus = menuQueries.some((query) => query.isLoading);
+
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = feed;
+  const hasMore = !!hasNextPage;
+  const fetchMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  /* Once asked for, the rest of the pages are walked one after another — each
+     arrival re-runs this — until the server says there are no more. */
+  const [wantAll, setWantAll] = useState(false);
+  const loadAll = useCallback(() => setWantAll(true), []);
+  useEffect(() => {
+    if (wantAll && foodShown && !feed.isLoading) fetchMore();
+  }, [wantAll, foodShown, feed.isLoading, fetchMore]);
 
   /* The feed's own failure first, because without it there is no catalogue at
      all. A failing MENU is reported only when not one of them arrived: a feed
@@ -247,6 +314,10 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
       loadingMenus,
       error,
       refetch,
+      hasMore,
+      loadingMore: isFetchingNextPage,
+      fetchMore,
+      loadAll,
       findKitchen,
       findDish,
       kitchensFor,
@@ -255,8 +326,9 @@ export function FoodCatalogueProvider({ children }: { children: React.ReactNode 
       menuFor,
     }),
     [
-      kitchens, dishes, feed.isLoading, loadingMenus, error,
-      refetch, findKitchen, findDish, kitchensFor, dishesFor, kitchenOpen, menuFor,
+      kitchens, dishes, feed.isLoading, loadingMenus, error, refetch,
+      hasMore, isFetchingNextPage, fetchMore, loadAll,
+      findKitchen, findDish, kitchensFor, dishesFor, kitchenOpen, menuFor,
     ],
   );
 

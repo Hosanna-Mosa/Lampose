@@ -1,6 +1,15 @@
-import React from 'react';
-import { ActivityIndicator, StyleSheet, View, type ViewStyle } from 'react-native';
-import Animated, { useAnimatedProps, useDerivedValue, withTiming } from 'react-native-reanimated';
+import React, { useEffect } from 'react';
+import { ActivityIndicator, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import Animated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedProps,
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 
 import { Text } from './Text';
@@ -144,6 +153,122 @@ export function SkeletonCard() {
 }
 
 /* ------------------------------------------------------------------ *
+ * Page skeletons
+ *
+ * What a screen shows while its first read is in flight, so the page is
+ * already there — header, layout, the shapes about to fill — instead of a
+ * spinner on a blank screen that reads as "nothing is happening". All of them
+ * breathe with the stay feed's pulse (`ListingFeedSkeleton`), and stop under
+ * reduced motion.
+ * ------------------------------------------------------------------ */
+
+/** The slow fade every skeleton breathes with. */
+export function SkeletonPulse({
+  children,
+  label = 'Loading',
+  style,
+}: {
+  children: React.ReactNode;
+  label?: string;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const reduceMotion = useReduceMotion();
+  const pulse = useSharedValue(1);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      cancelAnimation(pulse);
+      pulse.value = 1;
+      return undefined;
+    }
+    pulse.value = withRepeat(withTiming(0.55, { duration: 850, easing: Easing.inOut(Easing.quad) }), -1, true);
+    return () => cancelAnimation(pulse);
+  }, [reduceMotion, pulse]);
+
+  const breathing = useAnimatedStyle(() => ({ opacity: pulse.value }));
+
+  return (
+    <Animated.View accessibilityRole="progressbar" accessibilityLabel={label} style={[style, breathing]}>
+      {children}
+    </Animated.View>
+  );
+}
+
+export type SkeletonRowsProps = {
+  count?: number;
+  /** The leading shape: a round avatar/icon, a square thumbnail, or none. */
+  lead?: 'circle' | 'square' | 'none';
+  /** Draw each row as a bordered card rather than a plain list line. */
+  card?: boolean;
+  label?: string;
+  style?: StyleProp<ViewStyle>;
+};
+
+/** A list still on its way — notifications, tickets, orders, addresses. */
+export function SkeletonRows({ count = 5, lead = 'circle', card = false, label, style }: SkeletonRowsProps) {
+  const { colors, space, radius } = useTheme();
+  return (
+    <SkeletonPulse label={label} style={[{ gap: card ? space[3] : space[4] }, style]}>
+      {Array.from({ length: count }, (_, key) => (
+        <View
+          key={key}
+          style={[
+            styles.skeletonRow,
+            { gap: space[3] },
+            card && {
+              padding: space[3],
+              borderRadius: radius.card,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: colors.border,
+              backgroundColor: colors.surface,
+            },
+          ]}
+        >
+          {lead === 'circle' ? <Skeleton width={40} height={40} radius={20} /> : null}
+          {lead === 'square' ? <Skeleton width={56} height={56} radius={radius.chip} /> : null}
+          <View style={{ flex: 1, gap: space[2] }}>
+            <Skeleton width={key % 2 ? '58%' : '72%'} height={14} />
+            <Skeleton width={key % 2 ? '86%' : '64%'} height={11} />
+            {card ? <Skeleton width="32%" height={11} /> : null}
+          </View>
+        </View>
+      ))}
+    </SkeletonPulse>
+  );
+}
+
+export type SkeletonDetailProps = {
+  /** Height of the photo across the top; 0 for a page without one. */
+  hero?: number;
+  /** How many content blocks follow the title. */
+  blocks?: number;
+  label?: string;
+  style?: StyleProp<ViewStyle>;
+};
+
+/** A detail page still on its way — a listing, a booking, a support thread. */
+export function SkeletonDetail({ hero = 0, blocks = 3, label, style }: SkeletonDetailProps) {
+  const { space, layout, radius } = useTheme();
+  return (
+    <SkeletonPulse label={label} style={style}>
+      {hero > 0 ? <Skeleton height={hero} radius={0} /> : null}
+      <View style={{ padding: layout.gutter, gap: space[4] }}>
+        <View style={{ gap: space[2] }}>
+          <Skeleton width="70%" height={22} />
+          <Skeleton width="45%" height={13} />
+        </View>
+        {Array.from({ length: blocks }, (_, key) => (
+          <View key={key} style={{ gap: space[2] }}>
+            <Skeleton width="38%" height={12} />
+            <Skeleton height={key === 0 ? 72 : 52} radius={radius.card} />
+          </View>
+        ))}
+      </View>
+    </SkeletonPulse>
+  );
+}
+
+/* ------------------------------------------------------------------ *
  * Countdown ring
  * ------------------------------------------------------------------ */
 
@@ -235,6 +360,7 @@ export function CountdownRing({ secondsRemaining, totalSeconds, label }: Countdo
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
+  skeletonRow: { flexDirection: 'row', alignItems: 'center' },
   labelRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
   flexLabel: { flex: 1 },
   progressTrack: { height: 8, overflow: 'hidden' },

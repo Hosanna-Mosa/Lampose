@@ -2,9 +2,9 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { liveOrderHeadline } from '@/types/food';
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { Button, Text } from '@/components/ui';
+import { Button, Text, SkeletonRows } from '@/components/ui';
 import { useBottomBar } from '@/context/BottomBarContext';
 import { useFood } from '@/context/FoodContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -79,9 +79,7 @@ export function FoodOrders({ onHome }: { onHome: () => void }) {
   }
   if (!orders.length && ordersState === 'loading') {
     return (
-      <View style={{ padding: 32, alignItems: 'center' }}>
-        <ActivityIndicator />
-      </View>
+      <SkeletonRows count={4} lead="square" card label="Loading your orders" style={{ padding: 16 }} />
     );
   }
   if (!orders.length && ordersState === 'error') {

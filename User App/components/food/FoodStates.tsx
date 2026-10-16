@@ -1,8 +1,18 @@
-import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { StyleSheet, View, useWindowDimensions, type ViewStyle } from 'react-native';
+import Animated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { Button, Icon, Skeleton, Text, type IconName } from '@/components/ui';
-import { useTheme } from '@/context/ThemeContext';
+import { useReduceMotion, useTheme } from '@/context/ThemeContext';
+
+import { PHOTO_ASPECT } from './RestaurantListCard';
 
 /* ------------------------------------------------------------------ *
  * Empty and error states
@@ -93,44 +103,116 @@ export function FoodEmptyState({
  * ------------------------------------------------------------------ */
 
 /**
- * The feed's loading shape.
+ * The slow fade every food skeleton breathes with — the stay feed's
+ * `ListingFeedSkeleton` pulse, so the two modules wait the same way.
+ */
+function Breathing({ children, label, style }: { children: React.ReactNode; label: string; style?: ViewStyle }) {
+  const reduceMotion = useReduceMotion();
+  const pulse = useSharedValue(1);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      cancelAnimation(pulse);
+      pulse.value = 1;
+      return undefined;
+    }
+    pulse.value = withRepeat(withTiming(0.55, { duration: 850, easing: Easing.inOut(Easing.quad) }), -1, true);
+    return () => cancelAnimation(pulse);
+  }, [reduceMotion, pulse]);
+
+  const breathing = useAnimatedStyle(() => ({ opacity: pulse.value }));
+
+  return (
+    <Animated.View accessibilityRole="progressbar" accessibilityLabel={label} style={[style, breathing]}>
+      {children}
+    </Animated.View>
+  );
+}
+
+/** One `RestaurantListCard` before it arrives: its photo at its ratio, its
+ *  name and rating, its two caption lines. */
+function RestaurantCardShape() {
+  const { colors, space, radius, layout } = useTheme();
+  const { width } = useWindowDimensions();
+  const photoHeight = Math.round((width - layout.gutter * 2) / PHOTO_ASPECT);
+
+  return (
+    <View
+      style={[
+        styles.card,
+        { borderRadius: radius.card, borderColor: colors.border, backgroundColor: colors.surface },
+      ]}
+    >
+      <Skeleton height={photoHeight} radius={0} />
+      <View style={{ padding: space[3], gap: space[2] }}>
+        <View style={[styles.railRow, { alignItems: 'center', gap: space[2] }]}>
+          <Skeleton width="58%" height={18} />
+          <View style={{ flex: 1 }} />
+          <Skeleton width={44} height={20} radius={radius.pill} />
+        </View>
+        <Skeleton width="36%" height={12} />
+        <Skeleton width="48%" height={12} />
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Restaurant cards still on their way — the first page under the real banner,
+ * or the next page at the end of the feed.
+ */
+export function RestaurantCardSkeleton({ count = 2 }: { count?: number }) {
+  const { space, layout } = useTheme();
+  return (
+    <Breathing label="Loading kitchens" style={{ paddingHorizontal: layout.gutter, gap: space[3] }}>
+      {Array.from({ length: count }, (_, key) => (
+        <RestaurantCardShape key={key} />
+      ))}
+    </Breathing>
+  );
+}
+
+/** The cuisine rail's round chips, and the section header under them. */
+export function CuisineRailSkeleton() {
+  const { space, layout } = useTheme();
+  return (
+    <Breathing label="Loading cuisines" style={{ paddingHorizontal: layout.gutter, gap: space[4] }}>
+      <View style={[styles.railRow, { justifyContent: 'space-between', paddingTop: space[2] }]}>
+        {[0, 1, 2, 3, 4].map((chip) => (
+          <View key={chip} style={{ alignItems: 'center', gap: space[2] }}>
+            <Skeleton width={56} height={56} radius={28} />
+            <Skeleton width={44} height={10} />
+          </View>
+        ))}
+      </View>
+      <View style={[styles.railRow, { justifyContent: 'space-between' }]}>
+        <Skeleton width="48%" height={16} />
+        <Skeleton width="22%" height={12} />
+      </View>
+    </Breathing>
+  );
+}
+
+/**
+ * The feed's loading shape, for the places that cannot draw the real banner
+ * above it (Dine-in, and the frame before the food module is built).
  *
  * It is the real layout at the real sizes, not a generic stack of bars: the
- * rail is four cells, the cards are 56pt thumbs beside three lines. A skeleton
- * whose geometry differs from what arrives produces a visible jump on every
- * load, which is worse than a spinner because it happens after the wait rather
- * than during it.
+ * same full-width cards `RestaurantListCard` draws. A skeleton whose geometry
+ * differs from what arrives produces a visible jump on every load, which is
+ * worse than a spinner because it happens after the wait rather than during it.
  */
 export function FoodFeedSkeleton() {
-  const { space, layout, radius } = useTheme();
+  const { space } = useTheme();
 
   return (
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={{ paddingHorizontal: layout.gutter, gap: space[3], paddingTop: space[2] }}
+      style={{ gap: space[4], paddingTop: space[2] }}
     >
-      <View style={[styles.railRow, { gap: space[2] }]}>
-        {[0, 1, 2, 3].map((cell) => (
-          <Skeleton key={cell} height={48} radius={radius.button} style={{ flex: 1 }} />
-        ))}
-      </View>
-
-      <Skeleton height={44} radius={radius.button} />
-      <Skeleton height={56} radius={radius.card} />
-
-      <Skeleton width="45%" height={12} />
-
-      {[0, 1, 2].map((card) => (
-        <View key={card} style={[styles.skeletonCard, { gap: space[3] }]}>
-          <Skeleton width={56} height={56} radius={radius.chip} />
-          <View style={{ flex: 1, gap: space[2] }}>
-            <Skeleton width="62%" height={13} />
-            <Skeleton width="46%" height={10} />
-            <Skeleton width="34%" height={10} />
-          </View>
-        </View>
-      ))}
+      <CuisineRailSkeleton />
+      <RestaurantCardSkeleton count={2} />
     </View>
   );
 }
@@ -177,4 +259,5 @@ const styles = StyleSheet.create({
   measure: { maxWidth: 300 },
   railRow: { flexDirection: 'row' },
   skeletonCard: { flexDirection: 'row' },
+  card: { overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth },
 });

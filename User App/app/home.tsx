@@ -12,7 +12,6 @@ import React, {
   useSyncExternalStore,
 } from 'react';
 import {
-  ActivityIndicator,
   InteractionManager,
   Keyboard,
   Modal,
@@ -36,9 +35,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createValueStore, type ValueStore } from '@/utils/valueStore';
 
-import {
-  Button, Icon, OfflineBanner, SearchField, Snackbar, Text, useAlert,
-} from '@/components/ui';
+import { Button, Icon, OfflineBanner, SearchField, Snackbar, Text, useAlert, SkeletonRows } from '@/components/ui';
 import {
   ExploreHeader, OngoingStrip, StateTemplate, TabBar, type TabItem,
 } from '@/components/shell';
@@ -538,10 +535,14 @@ export default function Home() {
    * they had seen, and an owner checking their own listing, both read that
    * as the app losing it. Sorted last with a stable sort, so `applyQuery`'s
    * own order still decides within each group.
+   *
+   * Paged, `useListingFeed` already sorts them last within each page — doing
+   * it again here, across pages, would move a card that is already on screen
+   * every time the next ten arrive.
    */
   const shown = useMemo(
-    () => availableFirst(applyQuery(listings, query)),
-    [listings, query],
+    () => (filtersOnDevice ? availableFirst(applyQuery(listings, query)) : applyQuery(listings, query)),
+    [listings, query, filtersOnDevice],
   );
 
   /* Paged, the server's total — the screen holds only the pages scrolled to.
@@ -1266,10 +1267,13 @@ export default function Home() {
             onEndReached={fetchMoreFeed}
             onEndReachedThreshold={0.8}
             ListFooterComponent={
+              /* The next ten, at the size they will arrive at. */
               feedFetchingMore ? (
-                <View style={{ paddingVertical: space[4] }}>
-                  <ActivityIndicator color={colors.brand} />
-                </View>
+                <ListingFeedSkeleton
+                  count={1}
+                  gap={space[4]}
+                  style={{ paddingHorizontal: layout.gutter, paddingTop: space[4] }}
+                />
               ) : null
             }
             refreshControl={
@@ -1450,9 +1454,7 @@ export default function Home() {
               onPrimary={() => requireSignIn(() => {})}
             />
           ) : savedPending && saved.length === 0 ? (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: space[8] }}>
-              <ActivityIndicator color={colors.brand} size="large" />
-            </View>
+            <ListingFeedSkeleton count={3} gap={space[4]} />
           ) : savedError && saved.length === 0 ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: space[4], gap: space[3] }}>
               <Text variant="title2">Could not load saved places</Text>
@@ -1750,11 +1752,7 @@ export default function Home() {
              * Real bookings that map to this segment are listed under them.
              */
             if (bookingsQuery.loading && segment !== 'requests') {
-              return (
-                <View style={{ paddingTop: space[8], alignItems: 'center' }}>
-                  <ActivityIndicator />
-                </View>
-              );
+              return <SkeletonRows count={3} lead="square" card label="Loading your bookings" />;
             }
 
             const shown = realBookings.filter((booking) => segmentOf(booking.status) === segment);

@@ -27,7 +27,7 @@ import React, { useCallback, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Text, useAlert } from '@/components/ui';
+import { Button, Text, useAlert, SkeletonRows } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { emptyStates } from '@/constants/copy';
 import { ApiError } from '@/services/api/client';
@@ -201,9 +201,7 @@ export default function AddressesScreen() {
         )}
 
         {!isSignedIn ? null : loading ? (
-          <Text variant="body" color="tertiary">
-            Loading…
-          </Text>
+          <SkeletonRows count={3} lead="circle" card label="Loading your addresses" />
         ) : loadFailed && addresses.length === 0 ? (
           <Button label="Try again" variant="secondary" fullWidth onPress={() => { setLoading(true); void load(); }} />
         ) : addresses.length === 0 ? (

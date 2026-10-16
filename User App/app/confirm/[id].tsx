@@ -2,10 +2,10 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, ConfirmModal, InlineAlert, Text, TextField } from '@/components/ui';
+import { Button, ConfirmModal, InlineAlert, Text, TextField, SkeletonDetail } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { OwnerStatusTrail, WaitLoader, type TrailStep } from '@/components/request';
 /* Crossing from a stay screen into the food module's components, and only
@@ -514,8 +514,12 @@ export default function OwnerConfirmation() {
      never sees the form flash first. */
   if (listingLoading || stay.isHydrating) {
     return (
-      <View style={[styles.flex, styles.centre, { backgroundColor: colors.bg }]}>
-        <ActivityIndicator color={colors.brand} />
+      <View style={[styles.flex, { backgroundColor: colors.bg }]}>
+        <StandardHeader
+          title="Owner confirmation"
+          onBack={() => (router.canGoBack() ? router.back() : router.replace('/home'))}
+        />
+        <SkeletonDetail blocks={4} label="Loading your request" />
       </View>
     );
   }

@@ -49,7 +49,7 @@ const {
   listMyPayouts, requestMyPayout,
 } = require('./foodPartner.controller');
 const {
-  listMyProducts, createProduct, updateProduct, deleteProduct, setProductAvailability,
+  listMyProducts, createProduct, updateProduct, deleteProduct, setProductAvailability, bulkUpsertProducts,
 } = require('./foodMenu.controller');
 const { listMyOrders, getMyOrder, setOrderStatus } = require('./foodOrder.controller');
 const {
@@ -278,6 +278,9 @@ router.post('/me/payouts/request', session, payoutRequestLimit, requestMyPayout)
 
 router.get('/me/products', session, listMyProducts);
 router.post('/me/products', session, createProduct);
+/* The menu spreadsheet: adds and edits many dishes at once, never deletes.
+   See `bulkUpsertProducts`. */
+router.post('/me/products/bulk', session, bulkUpsertProducts);
 router.patch('/me/products/:productId', session, updateProduct);
 router.delete('/me/products/:productId', session, deleteProduct);
 /* Its own route because it is the one thing a kitchen does mid-service, from a

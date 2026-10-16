@@ -15,7 +15,7 @@ import { DietMark, FoodPhoto, RatingPill } from './FoodMarks';
 /** Photo width : height. The reference card's photo is close to 8:5, which is
  *  wide enough to hold a plated dish and short enough that two cards still
  *  meet on one screen. */
-const PHOTO_ASPECT = 1.62;
+export const PHOTO_ASPECT = 1.62;
 
 export type RestaurantListCardProps = {
   kitchen: Kitchen;

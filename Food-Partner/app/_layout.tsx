@@ -335,6 +335,7 @@ export default function RootLayout() {
           <Stack.Screen name="payouts" />
           <Stack.Screen name="dine-in" />
           <Stack.Screen name="photos" />
+          <Stack.Screen name="menu-sheet" />
           <Stack.Screen name="delete-account" />
           {/* Named by its FILE, not its folder: `app/product/` has no _layout, so
               expo-router flattens it and the child route is `product/[id]`.

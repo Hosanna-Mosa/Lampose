@@ -972,10 +972,257 @@ const setProductAvailability = async (req, res, next) => {
   }
 };
 
+/* ══════════════════════════════════════════════════════════════════════════
+   The spreadsheet: many dishes in one request
+
+   The Food-Partner app exports the menu to an Excel sheet and reads one back.
+   Each sheet row arrives here as the same body a single create or edit takes,
+   plus `productId` when the row came from an export and `row`, the sheet's own
+   row number, so a refusal can say "row 14" rather than "item 13".
+
+   ## A row with a Product ID edits that dish; a row without one adds a dish
+
+   Nothing is ever DELETED by a sheet. A dish missing from the upload is left
+   exactly as it was — a partner who filters the sheet down to one section in
+   Excel and uploads it must not lose the other nine. Removing a dish stays the
+   app's one-at-a-time delete.
+
+   ## Every row is checked before any row is written
+
+   With no transactions in this deployment, the only way to keep "the upload
+   failed" from meaning "half of it was applied" is to refuse the whole sheet
+   while ANY row is wrong, with every row's problems in one reply. `dryRun`
+   runs exactly that check and answers with what would happen, which is the
+   preview the app shows before the partner confirms.
+
+   ## A new dish needs its photo
+
+   Every row WITHOUT a Product ID must arrive with `productImage`, an image
+   already uploaded through `POST /uploads/images` — the app takes one per new
+   dish before it lets the partner save. A dry run does not ask for them: it is
+   the check that runs before the photos are taken, and it answers which rows
+   are new (`plan`) so the app knows which dishes to ask about. Any image sent
+   on any row must be an uploaded http(s) link; a local file or a data: URI is
+   a picture no diner's phone can load.
+
+   ## A new row that repeats a dish already on the menu is refused
+
+   Same section and the same name, case and spacing aside. The likeliest way
+   to send one is uploading a sheet whose Product ID column was deleted, which
+   would otherwise silently double the whole menu.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+ROUTES.bulk = 'POST /api/v2/food-partners/me/products/bulk';
+
+/** A stored value and a sent one, comparable: subdocument ids dropped, so an
+    untouched "Half:120" row is not an edit. */
+const plain = (value) => JSON.stringify(value === undefined ? null : value, (key, inner) => (key === '_id' ? undefined : inner));
+
+/** Section + name, the way a partner would say two dishes are the same one. */
+const dishKey = (category, name) => `${str(category).toLowerCase().replace(/\s+/g, ' ')}\u0000${str(name).toLowerCase().replace(/\s+/g, ' ')}`;
+
+// @route   POST /api/v2/food-partners/me/products/bulk
+// @desc    Add and edit many dishes from the menu spreadsheet. Never deletes.
+// @access  Food-partner session
+const bulkUpsertProducts = async (req, res, next) => {
+  try {
+    if (!dbUp()) return dbDown(res, ROUTES.bulk);
+
+    const { restaurantId, restaurantName } = req.foodPartner;
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const rows = Array.isArray(body.rows) ? body.rows : null;
+    const dryRun = readBoolean(body.dryRun) === true;
+
+    if (!rows || rows.length === 0) {
+      return badInput(res, 'The sheet has no dishes in it.', ['rows']);
+    }
+    if (rows.length > MENU_LIMIT) {
+      return badInput(res, `A sheet can carry at most ${MENU_LIMIT} dishes.`, ['rows'], 'TOO_MANY_ROWS');
+    }
+
+    const existing = await FoodProduct.find({ restaurantId }).limit(MENU_LIMIT + 1);
+    const byId = new Map(existing.map((product) => [product.productId, product]));
+    const taken = new Set(existing.map((product) => dishKey(product.category, product.productName)));
+
+    const plan = [];
+    const rowProblems = [];
+    const seenIds = new Set();
+
+    rows.forEach((raw, index) => {
+      const source = raw && typeof raw === 'object' ? raw : {};
+      const rowNumber = Number.isFinite(Number(source.row)) ? Number(source.row) : index + 2;
+      const productId = str(source.productId).toUpperCase();
+      const { set, problems } = readMenuFields(source);
+
+      if (set.productImage && set.productImage.url && !/^https?:\/\//i.test(set.productImage.url)) {
+        problems.push({ field: 'productImage', message: 'The photo was not uploaded. Take or choose it again.' });
+      }
+
+      if (productId) {
+        const product = byId.get(productId);
+        if (!product) {
+          problems.push({ field: 'productId', message: `No dish with Product ID ${productId} is on your menu. Clear that cell to add it as a new dish.` });
+        } else if (seenIds.has(productId)) {
+          problems.push({ field: 'productId', message: `Product ID ${productId} is on more than one row.` });
+        } else {
+          seenIds.add(productId);
+          const discount = discountProblem(
+            set.price === undefined ? product.price : set.price,
+            set.discountedPrice === undefined ? product.discountedPrice : set.discountedPrice,
+          );
+          if (discount) problems.push(discount);
+          if (!problems.length) plan.push({ row: rowNumber, kind: 'update', product, set });
+        }
+      } else {
+        /* The create rule, plus the diet: a sheet row with the column left
+           blank must not land behind a green dot by the schema's default. */
+        const needs = (field, message) => {
+          if (set[field] !== undefined) return;
+          if (problems.some((problem) => problem.field === field)) return;
+          problems.push({ field, message });
+        };
+        needs('productName', 'A dish needs a name.');
+        needs('category', 'A dish needs a section — "Starters", "Main Course", "Beverages".');
+        needs('price', 'A dish needs a price.');
+        needs('isVeg', `Say whether this is ${IS_VEG_VALUES.join(', ')}.`);
+        if (!dryRun && !(set.productImage && set.productImage.url) && !problems.some((p) => p.field === 'productImage')) {
+          problems.push({ field: 'productImage', message: 'A new dish needs a photo.' });
+        }
+
+        const discount = discountProblem(set.price, set.discountedPrice);
+        if (discount) problems.push(discount);
+
+        if (set.productName && set.category) {
+          const key = dishKey(set.category, set.productName);
+          if (taken.has(key)) {
+            problems.push({
+              field: 'productName',
+              message: `"${set.productName}" is already in ${set.category}. Keep its Product ID to edit it instead of adding it twice.`,
+            });
+          } else {
+            taken.add(key);
+          }
+        }
+        if (!problems.length) plan.push({ row: rowNumber, kind: 'create', set });
+      }
+
+      if (problems.length) rowProblems.push({ row: rowNumber, problems });
+    });
+
+    const creates = plan.filter((step) => step.kind === 'create');
+    if (!rowProblems.length && existing.length + creates.length > MENU_LIMIT) {
+      rowProblems.push({
+        row: null,
+        problems: [{ field: 'rows', message: `That would make ${existing.length + creates.length} dishes, and a menu holds at most ${MENU_LIMIT}.` }],
+      });
+    }
+
+    if (rowProblems.length) {
+      const count = rowProblems.reduce((sum, entry) => sum + entry.problems.length, 0);
+      logRejected(`the menu sheet was refused — ${count} problem(s) on ${rowProblems.length} row(s)`, {
+        code: 'SHEET_INVALID', field: 'rows', restaurantId, status: 400,
+      });
+      return fail(
+        res,
+        400,
+        'SHEET_INVALID',
+        `Nothing was saved. ${rowProblems.length} row${rowProblems.length === 1 ? ' needs' : 's need'} fixing first.`,
+        { rows: rowProblems },
+      );
+    }
+
+    /* What each update would actually change — a row exported and uploaded
+       untouched is not an edit, and is reported (and skipped) as unchanged. */
+    const updates = plan.filter((step) => step.kind === 'update');
+    const changedUpdates = updates.filter((step) => {
+      const current = step.product.toObject();
+      Object.entries(step.set).forEach(([key, value]) => {
+        if (plain(current[key]) !== plain(value)) step.product.set(key, value);
+      });
+      return step.product.isModified();
+    });
+
+    const summary = {
+      created: creates.length,
+      updated: changedUpdates.length,
+      unchanged: updates.length - changedUpdates.length,
+    };
+
+    if (dryRun) {
+      const changed = new Set(changedUpdates);
+      return res.json({
+        success: true,
+        dryRun: true,
+        data: {
+          ...summary,
+          /* Which sheet rows are new dishes — the ones the app asks a photo for. */
+          plan: plan.map((step) => ({
+            row: step.row,
+            kind: step.kind === 'create' ? 'create' : changed.has(step) ? 'update' : 'unchanged',
+          })),
+        },
+      });
+    }
+
+    /* Positions at the end of each section, counted up locally so a section
+       of thirty new dishes keeps the sheet's own order. */
+    const nextOrder = new Map();
+    const failed = [];
+    for (const step of creates) {
+      try {
+        let displayOrder = step.set.displayOrder;
+        if (displayOrder === undefined) {
+          if (!nextOrder.has(step.set.category)) {
+            nextOrder.set(step.set.category, await endOfCategory(restaurantId, step.set.category));
+          }
+          displayOrder = nextOrder.get(step.set.category);
+          nextOrder.set(step.set.category, displayOrder + 1);
+        }
+        await saveWithProductId(new FoodProduct({ ...step.set, restaurantId, displayOrder }));
+      } catch (error) {
+        logError(`row ${step.row} of a menu sheet could not be added`, error);
+        failed.push({ row: step.row, message: 'This dish could not be saved. Upload the sheet again to retry it.' });
+      }
+    }
+    for (const step of changedUpdates) {
+      try {
+        if (step.set.category !== undefined && step.product.isModified('category') && step.set.displayOrder === undefined) {
+          step.product.displayOrder = await endOfCategory(restaurantId, step.set.category);
+        }
+        await step.product.save();
+      } catch (error) {
+        logError(`row ${step.row} of a menu sheet could not be saved`, error);
+        failed.push({ row: step.row, message: 'This change could not be saved. Upload the sheet again to retry it.' });
+      }
+    }
+
+    logMenuChange({
+      action: 'sheet uploaded',
+      restaurantId,
+      restaurantName,
+      changes: { ...summary, failed: failed.length },
+    });
+
+    return res.json({
+      success: failed.length === 0,
+      data: {
+        ...summary,
+        created: summary.created - failed.filter((entry) => creates.some((step) => step.row === entry.row)).length,
+        updated: summary.updated - failed.filter((entry) => changedUpdates.some((step) => step.row === entry.row)).length,
+        failed,
+      },
+    });
+  } catch (error) {
+    logError('applying a menu sheet failed', error);
+    return next(error);
+  }
+};
+
 module.exports = {
   listMyProducts,
   createProduct,
   updateProduct,
   deleteProduct,
   setProductAvailability,
+  bulkUpsertProducts,
 };

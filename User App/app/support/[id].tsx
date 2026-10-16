@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 /*
  * The library's KeyboardAvoidingView, not React Native's.
  *
@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useBottomEdgeInset } from '@/hooks/useActionBarInset';
 
-import { Button, InlineAlert, Text, TextField } from '@/components/ui';
+import { Button, InlineAlert, Text, TextField, SkeletonRows } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { TicketMessageRow } from '@/components/lifecycle';
 import { emptyStates } from '@/constants/copy';
@@ -205,9 +205,16 @@ export default function TicketThread() {
 
   if (isPending) {
     return (
-      <View style={[{ flex: 1, backgroundColor: colors.bg }, styles.centre]}>
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-        <ActivityIndicator color={colors.brand} />
+        <StandardHeader title="Support" onBack={() => router.back()} />
+        <SkeletonRows
+          count={4}
+          lead="none"
+          card
+          label="Loading this conversation"
+          style={{ paddingHorizontal: layout.gutter, paddingTop: space[3] }}
+        />
       </View>
     );
   }

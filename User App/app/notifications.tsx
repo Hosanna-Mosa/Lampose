@@ -1,10 +1,10 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
+import { RefreshControl, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Text } from '@/components/ui';
+import { Button, Text, SkeletonRows } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { NotificationRow } from '@/components/lifecycle';
 import { emptyStates } from '@/constants/copy';
@@ -141,9 +141,7 @@ export default function Notifications() {
             <Button label="Sign in" onPress={() => requireSignIn(() => {})} fullWidth />
           </View>
         ) : isPending ? (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-            <ActivityIndicator color={colors.brand} />
-          </View>
+          <SkeletonRows count={6} lead="circle" label="Loading your alerts" />
         ) : error ? (
           <View style={{ flex: 1, justifyContent: 'center', gap: space[3] }}>
             <Text variant="title1">We could not load your alerts</Text>
