@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, { FadeInUp, useAnimatedStyle } from 'react-native-reanimated';
 
@@ -20,7 +20,14 @@ export const PHOTO_ASPECT = 1.62;
 export type RestaurantListCardProps = {
   kitchen: Kitchen;
   open: boolean;
-  onPress: () => void;
+  onPress?: () => void;
+  /**
+   * The same tap, handed the kitchen's id — so a feed can pass ONE stable
+   * function to every card and `memo` can skip the cards that did not change.
+   * A fresh `() => open(kitchen.id)` per card per render redrew the whole feed
+   * on every scroll crossing that touched the feed's state. Wins over `onPress`.
+   */
+  onOpen?: (id: string) => void;
   /**
    * One dish to name on the photo, with its price.
    *
@@ -62,10 +69,11 @@ export type RestaurantListCardProps = {
  * comfortable-looking range, because a range would be two numbers where the
  * data has one.
  */
-export function RestaurantListCard({
+export const RestaurantListCard = memo(function RestaurantListCard({
   kitchen,
   open,
   onPress,
+  onOpen,
   highlight,
   index = 0,
 }: RestaurantListCardProps) {
@@ -73,6 +81,7 @@ export function RestaurantListCard({
   const { width } = useWindowDimensions();
   const reduceMotion = useReduceMotion();
   const { onPressIn, onPressOut, progress } = usePressAnimation('card');
+  const handlePress = onOpen ? () => onOpen(kitchen.id) : onPress;
 
   const pressStyle = useAnimatedStyle(() => ({
     transform: [{ scale: reduceMotion ? 1 : 1 - progress.value * (1 - pressScale.card) }],
@@ -94,10 +103,13 @@ export function RestaurantListCard({
 
   return (
     <Animated.View
-      entering={reduceMotion ? undefined : FadeInUp.delay(Math.min(index, 8) * 60).duration(280)}
+      /* The first screenful only, as the stays feed does. A card arriving with
+         a later page is scrolled into, and a fade on each of those was layout
+         animation work landing in the middle of the scroll. */
+      entering={reduceMotion || index >= 8 ? undefined : FadeInUp.delay(index * 60).duration(280)}
     >
       <Pressable
-        onPress={onPress}
+        onPress={handlePress}
         onPressIn={onPressIn}
         onPressOut={onPressOut}
         accessibilityRole="button"
@@ -188,7 +200,7 @@ export function RestaurantListCard({
             {timeLabel ? (
               <View style={[styles.metaRow, { gap: space[1] + 2 }]}>
                 <Icon name="clock" size={16} color={colors.textTertiary} />
-                <Text variant="caption" color="tertiary" numberOfLines={1}>
+                <Text variant="caption" color="tertiary" numberOfLines={1} style={styles.metaText}>
                   {timeLabel}
                 </Text>
               </View>
@@ -204,7 +216,7 @@ export function RestaurantListCard({
             {takesTableBookings(kitchen) ? (
               <View style={[styles.metaRow, { gap: space[1] + 2 }]}>
                 <Icon name="dining" size={16} color={colors.textTertiary} />
-                <Text variant="caption" color="tertiary" numberOfLines={1}>
+                <Text variant="caption" color="tertiary" numberOfLines={1} style={styles.metaText}>
                   Dine-in · takes table bookings
                 </Text>
               </View>
@@ -214,12 +226,14 @@ export function RestaurantListCard({
       </Pressable>
     </Animated.View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   card: { overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   metaRow: { flexDirection: 'row', alignItems: 'center' },
+  /* A one-line fact in a row truncates instead of running off the card. */
+  metaText: { flexShrink: 1 },
   dishBadge: {
     position: 'absolute',
     top: 10,

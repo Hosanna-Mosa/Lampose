@@ -3,7 +3,8 @@ import { useStayRequest } from '@/services';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, Text, TextField, useAlert } from '@/components/ui';
@@ -125,7 +126,7 @@ export default function CancelBooking() {
         onAction={() => router.back()}
       />
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         contentContainerStyle={{
           padding: layout.gutter,
           gap: space[6],
@@ -203,6 +204,8 @@ export default function CancelBooking() {
               value={accountNumber}
               onChangeText={(v) => setAccountNumber(v.replace(/[^\d\s]/g, ''))}
               keyboardType="number-pad"
+              /* 9–18 digits, plus the spaces people group them with. */
+              maxLength={22}
               error={touched ? bankErrors.accountNumber ?? undefined : undefined}
             />
             <TextField
@@ -211,6 +214,9 @@ export default function CancelBooking() {
               onChangeText={(v) => setIfsc(v.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
               placeholder="HDFC0001234"
               autoCapitalize="characters"
+              /* An IFSC is always 11 characters. */
+              maxLength={11}
+              autoCorrect={false}
               error={touched ? bankErrors.ifsc ?? undefined : undefined}
             />
 
@@ -254,7 +260,7 @@ export default function CancelBooking() {
             <Button label="Keep my booking" variant="ghost" fullWidth onPress={() => router.back()} />
           </View>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </View>
   );
 }

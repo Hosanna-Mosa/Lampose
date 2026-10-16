@@ -22,6 +22,8 @@ import { StyleSheet, View } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { usePushRouting } from '@/services/push/usePushRouting';
+/* Side effect: a double tap pushes one screen, not two — see the file. */
+import '@/utils/navigationGuard';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();

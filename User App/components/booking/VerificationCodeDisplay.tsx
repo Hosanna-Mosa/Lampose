@@ -188,6 +188,8 @@ export function VerificationCodeDisplay({
           onPress={onCodeNotWorking}
           accessibilityRole="button"
           accessibilityLabel="Code not working"
+          /* Drawn at 38pt; the slop makes it a 44pt target. */
+          hitSlop={{ top: 3, bottom: 3 }}
           style={{ minHeight: 38, justifyContent: 'center' }}
         >
           <Text variant="bodyStrong" style={{ color: skin.link }}>

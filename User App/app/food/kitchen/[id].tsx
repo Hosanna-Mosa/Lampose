@@ -1,8 +1,9 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { dineInOf, metaLine } from '@/services/adapters/food.adapter';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Pressable, RefreshControl, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { PullRefreshControl } from '@/components/ui/PullRefreshControl';
 
 import { Icon, SearchField, Text } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
@@ -168,7 +169,15 @@ export default function KitchenScreen() {
     setDiets((current) =>
       current.includes(diet) ? current.filter((d) => d !== diet) : [...current, diet],
     );
-  const term = query.trim().toLowerCase();
+  /*
+   * The list filters on a DEFERRED copy of the query. The field itself stays
+   * live on every keystroke; the filtering, which rebuilds a long list, runs
+   * just behind it. Done in the same render, it held the JS thread while the
+   * keyboard was still sending characters, and a fast typist got a jumping
+   * cursor and dropped letters — the bug `AirbnbSearchBar` documents.
+   */
+  const deferredQuery = useDeferredValue(query);
+  const term = deferredQuery.trim().toLowerCase();
 
   /*
    * The feed is scoped to where the student is, so a kitchen opened from an
@@ -247,6 +256,19 @@ export default function KitchenScreen() {
   }, [visible, kitchen]);
   sectionsRef.current = sections;
 
+  /*
+   * The rows' two handlers, stable for the screen's lifetime — see
+   * `onQtyChangeFor` on `DishRow`. Every "+" changes the cart, which
+   * re-renders this screen; with these stable, only the row whose count moved
+   * redraws. Above the early return below, as hooks have to be.
+   */
+  const dishQtyRef = useRef<(dish: Dish, next: number) => void>(() => {});
+  const changeDishQty = useCallback((dish: Dish, next: number) => dishQtyRef.current(dish, next), []);
+  const openDishSheet = useCallback((dish: Dish) => {
+    setSheetDishId(dish.id);
+    setSheetOpen(true);
+  }, []);
+
 
   /*
    * No kitchen under this id — which is three different situations wearing one
@@ -308,6 +330,7 @@ export default function KitchenScreen() {
     }
     if (next > 0) add(dish, { spice: preferences.spice, kitchen });
   };
+  dishQtyRef.current = setDishQty;
 
   /*
    * The search field and the section chips — drawn twice: once in the flow of
@@ -351,6 +374,9 @@ export default function KitchenScreen() {
 
       <View style={{ flex: 1 }}>
       <Animated.ScrollView
+        /* A tap on a card, row or button while the keyboard is up does what it
+           says, rather than only closing the keyboard and needing a second tap. */
+        keyboardShouldPersistTaps="handled"
         ref={scrollRef}
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollAnim } } }], {
           useNativeDriver: true,
@@ -369,7 +395,7 @@ export default function KitchenScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: space[8] * 2, gap: space[3] }}
         refreshControl={
-          <RefreshControl refreshing={loading || loadingMenus} onRefresh={refetch} tintColor={colors.brand} />
+          <PullRefreshControl onRefresh={refetch} />
         }
       >
         {/* The identity block, in the reference's own order: who, then where,
@@ -601,11 +627,8 @@ export default function KitchenScreen() {
                         <DishRow
                           dish={dish}
                           qty={qtyOf(dish.id)}
-                          onQtyChange={(next) => setDishQty(dish, next)}
-                          onPress={() => {
-                            setSheetDishId(dish.id);
-                            setSheetOpen(true);
-                          }}
+                          onQtyChangeFor={changeDishQty}
+                          onOpen={openDishSheet}
                           disabled={!open}
                           reason={!open ? 'Closed' : undefined}
                           favouritable
@@ -764,6 +787,9 @@ function SectionChips({
 
   return (
     <ScrollView
+      /* A tap on a card, row or button while the keyboard is up does what it
+         says, rather than only closing the keyboard and needing a second tap. */
+      keyboardShouldPersistTaps="handled"
       ref={rowRef}
       onLayout={(event) => {
         rowWidth.current = event.nativeEvent.layout.width;

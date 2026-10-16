@@ -2,7 +2,8 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, StyleSheet, View } from 'react-native';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, ConfirmModal, InlineAlert, Text, TextField, SkeletonDetail } from '@/components/ui';
@@ -71,6 +72,17 @@ function stamp(value: string | null | undefined): string | undefined {
   });
 }
 
+/**
+ * A count from the route, or nothing. These arrive as strings from a link or a
+ * notification, and `Number("abc")` is NaN — which reaches the server as `null`
+ * and comes back as a refusal nobody can read. Only a whole positive number is
+ * sent; anything else is left for the server to ask about plainly.
+ */
+function wholeCount(raw: string | string[] | undefined): number | undefined {
+  const value = Number(Array.isArray(raw) ? raw[0] : raw);
+  return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
 export default function OwnerConfirmation() {
   const { mode, colors, space, layout, radius } = useTheme();
   const foodVisible = useFoodVisible();
@@ -99,7 +111,7 @@ export default function OwnerConfirmation() {
       consented?: string;
     }>();
 
-  const { listing, isPending: listingLoading, notFound, refetch: refetchListing } = useListing(id);
+  const { listing, isPending: listingLoading, notFound, error: listingError, refetch: refetchListing } = useListing(id);
   const { request: pending, start: startPill, settle: settlePill, clear: clearPill } =
     usePendingRequest();
   const { status, completeProfile } = useAuth();
@@ -152,7 +164,7 @@ export default function OwnerConfirmation() {
         checkIn,
         checkOut: checkOut || undefined,
         rateStructure: (rateStructure as 'nightly' | 'monthly' | 'flexible') || undefined,
-        rateQuantity: rateQuantity ? Number(rateQuantity) : undefined,
+        rateQuantity: wholeCount(rateQuantity),
         flexibleJoin: flexibleJoin === '1',
       };
     }
@@ -164,7 +176,7 @@ export default function OwnerConfirmation() {
          MONTHLY is a long one; there is no weekly rate on either side. */
       stayType: stayType === 'DAILY' ? ('short' as const)
         : stayType === 'MONTHLY' ? ('long' as const) : undefined,
-      duration: units ? Number(units) : undefined,
+      duration: wholeCount(units),
       durationUnit: stayType === 'DAILY' ? ('days' as const)
         : stayType === 'MONTHLY' ? ('months' as const) : undefined,
       joiningDate: joinDate || undefined,
@@ -520,6 +532,24 @@ export default function OwnerConfirmation() {
           onBack={() => (router.canGoBack() ? router.back() : router.replace('/home'))}
         />
         <SkeletonDetail blocks={4} label="Loading your request" />
+      </View>
+    );
+  }
+
+  /* A listing that could not be FETCHED is not one that is gone. Offline, this
+     said the booking was not found — on the one screen a student checks to
+     know their bed is held. Only a 404 says "not found"; anything else retries,
+     the way the booking detail screen already does. */
+  if (!listing && listingError && !notFound) {
+    return (
+      <View style={[styles.flex, { backgroundColor: colors.bg, paddingBottom: insets.bottom }]}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <StandardHeader title="Owner confirmation" onBack={() => (router.canGoBack() ? router.back() : router.replace('/home'))} />
+        <View style={{ flex: 1, justifyContent: 'center', gap: space[3], padding: space[5] }}>
+          <Text variant="title1">We could not load this</Text>
+          <Text variant="bodyLg" color="secondary">{listingError.displayMessage}</Text>
+          <Button label="Try again" onPress={() => { void refetchListing(); }} fullWidth />
+        </View>
       </View>
     );
   }
@@ -987,7 +1017,10 @@ export default function OwnerConfirmation() {
         onBack={() => (router.canGoBack() ? router.back() : router.replace('/home'))}
       />
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
+        /* A tap on a card, row or button while the keyboard is up does what it
+           says, rather than only closing the keyboard and needing a second tap. */
+        keyboardShouldPersistTaps="handled"
         style={{ backgroundColor: colors.bg }}
         contentContainerStyle={{
           paddingHorizontal: layout.gutter,
@@ -1347,7 +1380,7 @@ export default function OwnerConfirmation() {
             />
           </View>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
 
       {/*
         Withdrawing is a real cancellation now.

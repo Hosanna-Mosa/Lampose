@@ -29,6 +29,10 @@ export function groupIndian(value: number): string {
 }
 
 export function formatRupees(value: number): string {
+  /* A missing figure from the server is typed `number` and is not one at run
+     time. "₹NaN" on a price is worse than a dash, and "₹0" would read as
+     free — so a non-number shows as the dash. */
+  if (typeof value !== 'number' || !Number.isFinite(value)) return `${money.symbol}—`;
   return `${money.symbol}${groupIndian(value)}`;
 }
 

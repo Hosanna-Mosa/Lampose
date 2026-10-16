@@ -65,8 +65,13 @@ export default function PaymentIncompleteScreen() {
   const check = useCallback(async () => {
     if (!id) return;
     setChecking(true);
-    await refreshOrder(String(id));
-    setChecking(false);
+    try {
+      await refreshOrder(String(id));
+    } finally {
+      /* Always — a check that threw must not leave the screen saying
+         "checking" with its buttons held. */
+      setChecking(false);
+    }
   }, [id, refreshOrder]);
 
   useEffect(() => {

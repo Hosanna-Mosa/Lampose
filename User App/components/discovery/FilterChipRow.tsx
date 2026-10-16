@@ -139,6 +139,10 @@ export function FilterChipRow({
             <Pressable
               key={chip.id}
               onPress={() => onPressChip(chip.id)}
+              /* The chip draws 32pt; this takes the target to 44 so a thumb
+                 just above or below still lands. Vertical only — sideways it
+                 would reach into the next chip across the 8pt gap. */
+              hitSlop={{ top: 6, bottom: 6 }}
               style={({ pressed }) => [
                 styles.chipButton,
                 {

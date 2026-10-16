@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 import Animated, {
   interpolateColor,
@@ -499,10 +499,21 @@ export type StepperProps = {
  */
 export function Stepper({ value, onChange, min = 1, max = 4, accessibilityLabel, unit }: StepperProps) {
   const { colors, space, radius, touch } = useTheme();
+  /* Taps build on the last one asked for, not on the last `value` rendered:
+     two quick "+" both sent value + 1 and the second was lost. Re-aligned
+     with `value` on every render, as `AddControl` does. */
+  const requested = useRef(value);
+  requested.current = value;
+  const bump = (delta: number) => {
+    const next = Math.min(max, Math.max(min, requested.current + delta));
+    if (next === requested.current) return;
+    requested.current = next;
+    onChange(next);
+  };
 
   const step = (delta: number, atBound: boolean, label: string) => (
     <Pressable
-      onPress={atBound ? undefined : () => onChange(value + delta)}
+      onPress={atBound ? undefined : () => bump(delta)}
       disabled={atBound}
       accessibilityRole="button"
       accessibilityLabel={`${label} ${accessibilityLabel}`}

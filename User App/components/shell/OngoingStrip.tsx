@@ -291,7 +291,7 @@ export function OngoingStrip({ items, onPress }: OngoingStripProps) {
               <Text
                 variant="caption"
                 numberOfLines={1}
-                style={{ color: colors.brandInk || brandColor, fontWeight: '700', fontSize: 11.5 }}
+                style={{ color: colors.brandInk || brandColor, fontWeight: '700', fontSize: 11.5, flexShrink: 1 }}
               >
                 {item.status}
               </Text>

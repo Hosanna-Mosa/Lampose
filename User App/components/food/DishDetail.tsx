@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { PhotoGallery } from '@/components/discovery/PhotoGallery';
@@ -377,6 +377,11 @@ export function DishCommitBar({
 }) {
   const { colors, space, radius } = useTheme();
   const { qty, setQty, orderable, unitPrice, commit } = choices;
+  /* One add per tap burst. This is a plain Pressable, not `Button` with its
+     repress guard, and a double tap committed twice before the sheet had
+     closed — double the quantity in the cart. A real add closes the sheet,
+     so a guard that only ever opens again on the next dish is enough. */
+  const committing = useRef(false);
 
   return (
     <View style={[styles.cta, { gap: space[3] }]}>
@@ -396,7 +401,12 @@ export function DishCommitBar({
                 /* Only on a real add. A dish from another kitchen comes back
                    'conflict' and waits on the switch prompt — leaving the
                    screen then dropped it silently. */
-                if (commit() === 'added') onCommitted();
+                if (committing.current) return;
+                const result = commit();
+                if (result === 'added') {
+                  committing.current = true;
+                  onCommitted();
+                }
               }
             : undefined
         }

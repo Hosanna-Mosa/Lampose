@@ -134,6 +134,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           setCategoryState(storedCategory);
         }
       })
+      /* Storage that cannot be read (full, corrupt, a cleared profile) is a
+         first run, not an error: the entry screens ask again. Caught, so it is
+         not an unhandled rejection on launch. */
+      .catch(() => {})
       .finally(() => {
         if (active) setHydrating(false);
       });

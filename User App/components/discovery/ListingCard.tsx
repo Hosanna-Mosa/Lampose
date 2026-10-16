@@ -1,9 +1,10 @@
-import React, { memo, useEffect, useState } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
   StyleSheet,
   View,
+  useWindowDimensions,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   type ViewStyle,
@@ -74,6 +75,9 @@ export function AvailabilityChip({ availability }: { availability: Availability 
   );
 }
 
+/** A second tap on a heart sooner than this is the same tap. */
+export const HEART_REPEAT_MS = 350;
+
 const PLACEHOLDERS = [
   ['#8C8578', '#4A463E'],
   ['#83897A', '#454940'],
@@ -92,8 +96,13 @@ function FloatingHeartButton({
   listingName: string;
 }) {
   const scale = useSharedValue(1);
+  /* A double tap saved and at once unsaved — the heart looked broken. */
+  const lastTap = useRef(0);
 
   const handlePress = () => {
+    const now = Date.now();
+    if (now - lastTap.current < HEART_REPEAT_MS) return;
+    lastTap.current = now;
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {}
@@ -454,7 +463,8 @@ export const ListingCard = memo(function ListingCard({
   index = 0,
   saved,
 }: ListingCardProps) {
-  const { colors, mode } = useTheme();
+  const { colors, mode, layout } = useTheme();
+  const { width: windowWidth } = useWindowDimensions();
   const { animatedStyle, onPressIn, onPressOut } = usePressAnimation('card');
   /* Every tap that opens a listing is counted for the owner and the console
      (see `recordListingClick`). Done here, once, so every screen that shows a
@@ -467,7 +477,10 @@ export const ListingCard = memo(function ListingCard({
     : undefined;
   const gone = isGone(listing.availability);
 
-  const [listWidth, setListWidth] = useState(358);
+  /* Started at the width a feed card is actually drawn at (the screen inside
+     the gutters), not a constant: a guess re-rendered every card a second
+     time as it mounted — mid-scroll — once `onLayout` measured the truth. */
+  const [listWidth, setListWidth] = useState(() => Math.round(windowWidth - layout.gutter * 2));
   const width = variant === 'carousel' ? GEOMETRY.carousel.width : undefined;
 
   const content = (
@@ -813,6 +826,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   locationText: {
+    /* Shrinks, so a long locality ends in "…" instead of running under the
+       review count: a Text in a row does not shrink by default. */
+    flexShrink: 1,
     fontSize: 13,
     color: '#64748B',
     fontWeight: '500',

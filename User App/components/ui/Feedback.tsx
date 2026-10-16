@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 
@@ -38,11 +38,19 @@ export type ToastProps = {
 export function Toast({ message, tone = 'success', visible, onDismiss, duration = 3200, offsetBottom = 0 }: ToastProps) {
   const { colors, space, radius } = useTheme();
 
+  /*
+   * The latest `onDismiss` in a ref, so the countdown starts when the message
+   * appears and NOT again on every render. Callers pass an inline arrow, a new
+   * function each render — and as a dependency it restarted the timer each
+   * time the screen re-rendered, so on a busy screen the message never left.
+   */
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
   useEffect(() => {
-    if (!visible || !onDismiss) return;
-    const timer = setTimeout(onDismiss, duration);
+    if (!visible || !dismissRef.current) return;
+    const timer = setTimeout(() => dismissRef.current?.(), duration);
     return () => clearTimeout(timer);
-  }, [visible, duration, onDismiss]);
+  }, [visible, duration]);
 
   if (!visible) return null;
 
@@ -124,11 +132,34 @@ export function Snackbar({
 }: SnackbarProps) {
   const { colors, space, radius, touch } = useTheme();
 
+  /*
+   * The latest `onDismiss` in a ref, so the countdown starts when the message
+   * appears and NOT again on every render. Callers pass an inline arrow, a new
+   * function each render — and as a dependency it restarted the timer each
+   * time the screen re-rendered, so on a busy screen the message never left.
+   */
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
   useEffect(() => {
-    if (!visible || !onDismiss) return;
-    const timer = setTimeout(onDismiss, duration);
+    if (!visible || !dismissRef.current) return;
+    const timer = setTimeout(() => dismissRef.current?.(), duration);
     return () => clearTimeout(timer);
-  }, [visible, duration, onDismiss]);
+  }, [visible, duration]);
+
+  /*
+   * One action per showing. A double tap on "Undo" ran it twice before the bar
+   * had gone — and an undo that toggles (the shortlist's does) put the place
+   * back and then took it away again.
+   */
+  const acted = useRef(false);
+  useEffect(() => {
+    if (visible) acted.current = false;
+  }, [visible]);
+  const act = () => {
+    if (acted.current) return;
+    acted.current = true;
+    onAction();
+  };
 
   if (!visible) return null;
 
@@ -154,7 +185,7 @@ export function Snackbar({
         {message}
       </Text>
       <Pressable
-        onPress={onAction}
+        onPress={act}
         accessibilityRole="button"
         accessibilityLabel={actionLabel}
         style={[styles.snackAction, { minHeight: touch.min, paddingHorizontal: space[3] }]}

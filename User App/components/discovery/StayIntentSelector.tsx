@@ -355,8 +355,11 @@ function Dropdown({
       setInternalOpen(false);
     }
   };
+  /* The field only ever OPENS. It used to flip, so a second tap that landed
+     before the sheet had painted — the one people add when the first seems
+     not to have worked — shut the sheet the first had just opened. */
   const toggleOpen = () => {
-    if (disabled) return;
+    if (disabled || open) return;
     if (onToggle) {
       onToggle();
     } else {

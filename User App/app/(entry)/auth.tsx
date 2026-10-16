@@ -12,6 +12,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { MAX_FONT_SCALE } from '@/constants/tokens';
 import Animated, {
   interpolate,
   useAnimatedStyle,
@@ -41,7 +42,7 @@ import { LEGAL_URLS } from '@/constants/legal';
 import { useFoodVisible } from '@/hooks/useAppEnv';
 import { LightThemeScope, useTheme } from '@/context/ThemeContext';
 import { useTypeScale } from '@/context/TypographyContext';
-import { isValidIndianMobile, phoneError, sendFailureCopy } from '@/types/auth';
+import { isValidIndianMobile, phoneError, sendFailureCopy, tenDigitMobile } from '@/types/auth';
 
 /**
  * 3D Flip Authentication Screen
@@ -188,7 +189,7 @@ function AuthScreen() {
   }));
 
   const handlePhoneChange = (value: string) => {
-    const cleaned = value.replace(/[^0-9]/g, '').slice(0, 10);
+    const cleaned = tenDigitMobile(value);
     setDigits(cleaned);
 
     if (cleaned.length === 10 && isValidIndianMobile(cleaned)) {
@@ -202,6 +203,9 @@ function AuthScreen() {
     }
   };
 
+  /* One code per tap: `isSubmitting` lands a render late, and a double tap
+     sent two SMS — the second replacing the code the student then typed. */
+  const sending = useRef(false);
   const submitPhone = async () => {
     setTouched(true);
     if (!numberValid) {
@@ -223,13 +227,37 @@ function AuthScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {}
 
-    const invite = inviteCode.trim().toUpperCase();
-    const result = await sendCode(`+91${digits}`, invite ? { referralCode: invite } : undefined);
-    if (result === 'failed') return;
+    if (sending.current) return;
+    sending.current = true;
+    try {
+      const invite = inviteCode.trim().toUpperCase();
+      const result = await sendCode(`+91${digits}`, invite ? { referralCode: invite } : undefined);
+      if (result === 'failed') return;
+    } finally {
+      sending.current = false;
+    }
   };
 
+  /*
+   * One verify at a time. `isSubmitting` disables the button, but a render
+   * later — a fast double tap, or the code auto-submitting as its last digit
+   * lands while the button is tapped, sent the SAME code twice. The second
+   * check of a code the first had just used came back as an error, over a
+   * sign-in that had worked.
+   */
+  const verifying = useRef(false);
   const submitOtp = async (value: string) => {
     if (usesPassword ? value.length === 0 : value.length !== config.otpLength) return;
+    if (verifying.current) return;
+    verifying.current = true;
+    try {
+      await runSubmitOtp(value);
+    } finally {
+      verifying.current = false;
+    }
+  };
+
+  const runSubmitOtp = async (value: string) => {
     setOtpState('verifying');
     setProblem(null);
 
@@ -271,7 +299,23 @@ function AuthScreen() {
     }
   };
 
+  /* The resend countdown only starts once the server answers, so on a slow
+     line the button stayed live and a second tap sent a second SMS. */
+  const [resending, setResending] = useState(false);
+  const resendInFlight = useRef(false);
   const handleResend = async () => {
+    if (resendInFlight.current) return;
+    resendInFlight.current = true;
+    setResending(true);
+    try {
+      await runResend();
+    } finally {
+      resendInFlight.current = false;
+      setResending(false);
+    }
+  };
+
+  const runResend = async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {}
@@ -505,6 +549,9 @@ function AuthScreen() {
                   <Text style={styles.countryCodeText}>+91</Text>
                   <View style={styles.divider} />
                   <TextInput
+                    /* Typed text scales with the system font, capped like every label (see
+                       `MAX_FONT_SCALE`) — uncapped, it outgrew its field at large sizes. */
+                    maxFontSizeMultiplier={MAX_FONT_SCALE}
                     ref={inputRef}
                     value={digits}
                     onChangeText={handlePhoneChange}
@@ -518,7 +565,10 @@ function AuthScreen() {
                     keyboardType="number-pad"
                     textContentType="telephoneNumber"
                     autoComplete="tel"
-                    maxLength={10}
+                    /* Room for an autofilled "+91 98765 43210" — see
+                       `tenDigitMobile`. A 10-character cap cut it to
+                       "+91 98765 " before it could be cleaned. */
+                    maxLength={16}
                     /*
                       Smaller WHILE EMPTY, so the placeholder fits on one line.
 
@@ -544,6 +594,9 @@ function AuthScreen() {
                         logo's yellow ink rather than the screen's green. */}
                     <Icon name="offer" size={18} color={colors.deal.ink} />
                     <TextInput
+                      /* Typed text scales with the system font, capped like every label (see
+                         `MAX_FONT_SCALE`) — uncapped, it outgrew its field at large sizes. */
+                      maxFontSizeMultiplier={MAX_FONT_SCALE}
                       value={inviteCode}
                       onChangeText={(v) => setInviteCode(v.replace(/\s/g, '').slice(0, 20))}
                       placeholder="Invite code (optional)"
@@ -677,6 +730,9 @@ function AuthScreen() {
                       <Icon name="security" size={18} color="#0A5A41" />
                       <View style={styles.divider} />
                       <TextInput
+                        /* Typed text scales with the system font, capped like every label (see
+                           `MAX_FONT_SCALE`) — uncapped, it outgrew its field at large sizes. */
+                        maxFontSizeMultiplier={MAX_FONT_SCALE}
                         value={code}
                         onChangeText={(nextCode) => {
                           setCode(nextCode);
@@ -782,7 +838,14 @@ function AuthScreen() {
                       Ask for another code in {resendIn}s
                     </Text>
                   ) : (
-                    <Button label="Send a new code" variant="ghost" onPress={handleResend} fullWidth />
+                    <Button
+                      label="Send a new code"
+                      loadingLabel="Sending a new code"
+                      loading={resending}
+                      variant="ghost"
+                      onPress={handleResend}
+                      fullWidth
+                    />
                   )}
 
                   <Button label="Use a different number" variant="ghost" onPress={handleUseAnotherNumber} fullWidth />

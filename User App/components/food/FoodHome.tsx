@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { liveOrderHeadline } from '@/types/food';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -45,6 +45,8 @@ import { ActiveOrderCard } from './FoodStatus';
 import { SUGGESTIONS } from './FoodSearch';
 import { useFoodCatalogue } from '@/context/FoodCatalogueContext';
 import { useFoodPaused } from './FoodPaused';
+import { AmbientMotionProvider } from '@/context/AmbientMotionContext';
+import { createValueStore, type ValueStore } from '@/utils/valueStore';
 
 /**
  * Home — the Food module's feed.
@@ -233,6 +235,19 @@ export function FoodHome({
      re-render nothing. */
   const lastY = useRef(0);
 
+  /*
+   * Whether the banner has scrolled out of sight, so its loops can stop.
+   *
+   * The banner runs its autoplay and several forever-loops (shine, steam, the
+   * rider, drifting shapes), and nothing stopped them once it had scrolled
+   * away — every one kept committing frames under the kitchen list being
+   * scrolled. The stays hero is paused the same way (`HeroMotionGate` in
+   * `app/home.tsx`). A store, not state: only `BannerMotionGate` hears the
+   * crossing, so it never re-renders this feed.
+   */
+  const [bannerAwayStore] = useState(() => createValueStore(false));
+  const bannerHeight = useRef(Number.POSITIVE_INFINITY);
+
   const setOnArtwork = useCallback(
     (next: boolean) => {
       if (next === underHeader.current) return;
@@ -257,6 +272,9 @@ export function FoodHome({
         fetchMoreRef.current();
       }
       /* 2pt of deadband, so a resting thumb's jitter is not a direction. */
+      const bannerAway = y > bannerHeight.current;
+      if (bannerAway !== bannerAwayStore.get()) bannerAwayStore.set(bannerAway);
+
       const goingUp = y < lastY.current - 2;
       lastY.current = y;
 
@@ -276,7 +294,7 @@ export function FoodHome({
         setRailPinned(pinned);
       }
     },
-    [barScroll, setOnArtwork],
+    [barScroll, setOnArtwork, bannerAwayStore],
   );
 
   const bandFillStyle = useAnimatedStyle(() => ({ opacity: bandSolid.value }));
@@ -468,6 +486,28 @@ export function FoodHome({
   const promoSlides = useMemo(() => buildPromoSlides(onSearch), [onSearch]);
 
   /*
+   * The kitchen cards' tap, stable for the screen's lifetime, so a memoised
+   * card is not redrawn just because this feed re-rendered (see `onOpen` on
+   * `RestaurantListCard`). Also above the early returns, for the same reason
+   * `promoSlides` is. A second tap inside the guard is the same tap — it used
+   * to push the kitchen twice.
+   */
+  const routerRef = useRef(router);
+  routerRef.current = router;
+  const lastKitchenOpen = useRef(0);
+  const openKitchenById = useCallback((id: string) => {
+    const now = Date.now();
+    if (now - lastKitchenOpen.current < 800) return;
+    lastKitchenOpen.current = now;
+    routerRef.current.push(foodHref.kitchen(id));
+  }, []);
+  /* The rail's two handlers, stable so the memoised rail (drawn twice) is not
+     redrawn each time the feed re-renders — the pinned rail's own crossing
+     does that on every scroll past it. */
+  const toggleCheap = useCallback(() => setCheapOnly((current) => !current), []);
+  const openBrowse = useCallback(() => setBrowseOpen(true), []);
+
+  /*
    * Choosing a mode, and switching it off, both go through the same steps in
    * the same order: the preference is set FIRST, the transition animation
    * SECOND. The animation is a beat over a change that has already happened,
@@ -554,7 +594,6 @@ export function FoodHome({
     .sort((a, b) => (b.ordersInBlock ?? 0) - (a.ordersInBlock ?? 0))
     .slice(0, 6);
 
-  const openKitchen = (id: string) => router.push(foodHref.kitchen(id));
   const openDish = (id: string) => router.push(foodHref.dish(id));
 
   /* One element, drawn in the feed and again pinned — see `pinnedRailStyle`. */
@@ -565,8 +604,8 @@ export function FoodHome({
       active={cuisineFilter}
       onChange={setCuisineFilter}
       cheapActive={cheapOnly}
-      onToggleCheap={() => setCheapOnly((current) => !current)}
-      onSeeAll={() => setBrowseOpen(true)}
+      onToggleCheap={toggleCheap}
+      onSeeAll={openBrowse}
     />
   );
 
@@ -591,8 +630,14 @@ export function FoodHome({
           the artwork in exactly the same place, but a child of the banner
           scrolls away with the banner, and this one has to stay. See the
           band below the feed. */}
-      <View>
-        <PromoBanner slides={promoSlides} />
+      <View
+        onLayout={(event) => {
+          bannerHeight.current = event.nativeEvent.layout.y + event.nativeEvent.layout.height;
+        }}
+      >
+        <BannerMotionGate store={bannerAwayStore}>
+          <PromoBanner slides={promoSlides} />
+        </BannerMotionGate>
 
         {/* The bottom edge, curved rather than a straight cut into the page
             below. See `BannerCurve`'s own comment for how and why. */}
@@ -633,7 +678,9 @@ export function FoodHome({
           /* The veg-mode note, when it shows, sits between the banner and the
              rail, so the rail only tucks under the banner without it. */
           style={{ marginTop: vegMode === 'off' ? -RAIL_TUCK : -space[3] }}>
-          {cuisineRail}
+          {/* Two copies of the rail exist (see `pinnedRailStyle`); only the
+              one on show runs its loop. */}
+          <AmbientMotionProvider paused={railPinned}>{cuisineRail}</AmbientMotionProvider>
         </View>
       )}
 
@@ -714,7 +761,7 @@ export function FoodHome({
                 key={kitchen.id}
                 kitchen={kitchen}
                 open={kitchenOpen(kitchen)}
-                onPress={() => openKitchen(kitchen.id)}
+                onOpen={openKitchenById}
                 highlight={highlightDish(kitchen)}
                 index={index}
               />
@@ -970,7 +1017,7 @@ export function FoodHome({
         pinnedRailStyle,
       ]}
     >
-      {cuisineRail}
+      <AmbientMotionProvider paused={!railPinned}>{cuisineRail}</AmbientMotionProvider>
     </Animated.View>
     )}
 
@@ -1225,6 +1272,12 @@ function RotatingPlaceholder({ areaLabel }: { areaLabel: string }) {
       </Text>
     </Animated.View>
   );
+}
+
+/** The banner's loops, paused once it has scrolled away — see `bannerAwayStore`. */
+function BannerMotionGate({ store, children }: { store: ValueStore<boolean>; children: React.ReactNode }) {
+  const away = useSyncExternalStore(store.subscribe, store.get, store.get);
+  return <AmbientMotionProvider paused={away}>{children}</AmbientMotionProvider>;
 }
 
 const styles = StyleSheet.create({

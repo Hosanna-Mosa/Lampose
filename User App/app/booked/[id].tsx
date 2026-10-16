@@ -110,7 +110,7 @@ export default function Booked() {
    */
   useEffect(() => { clear(); }, [clear]);
 
-  const { listing, isPending, notFound, refetch: refetchListing } = useListing(id);
+  const { listing, isPending, notFound, error: listingError, refetch: refetchListing } = useListing(id);
 
   /*
    * The accepted request — and specifically its ENTRY PIN.
@@ -201,6 +201,24 @@ export default function Booked() {
       <View style={[styles.flex, { backgroundColor: colors.bg }]}>
         <StandardHeader title="Confirmed" onBack={() => router.replace('/home')} />
         <SkeletonDetail blocks={4} label="Loading your booking" />
+      </View>
+    );
+  }
+
+  /* A listing that could not be FETCHED is not one that is gone. Offline, this
+     said the booking was not found — on the one screen a student checks to
+     know their bed is held. Only a 404 says "not found"; anything else retries,
+     the way the booking detail screen already does. */
+  if (!listing && listingError && !notFound) {
+    return (
+      <View style={[styles.flex, { backgroundColor: colors.bg, paddingBottom: insets.bottom }]}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <StandardHeader title="Confirmed" onBack={() => router.replace('/home')} />
+        <View style={{ flex: 1, justifyContent: 'center', gap: space[3], padding: space[5] }}>
+          <Text variant="title1">We could not load this</Text>
+          <Text variant="bodyLg" color="secondary">{listingError.displayMessage}</Text>
+          <Button label="Try again" onPress={() => { void refetchListing(); }} fullWidth />
+        </View>
       </View>
     );
   }

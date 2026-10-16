@@ -89,6 +89,9 @@ export function OtpInput({
 
   const handleChange = (next: string) => {
     const cleaned = next.replace(/[^0-9]/g, '').slice(0, length);
+    /* A keystroke on a code that is already whole changes nothing — and must
+       not send the same (perhaps just refused) code to the server again. */
+    if (cleaned === value) return;
     onChange(cleaned);
     if (cleaned.length === length) onComplete?.(cleaned);
   };
@@ -137,7 +140,18 @@ export function OtpInput({
              fills it from the SMS Retriever API off `autoComplete`. */
           textContentType="oneTimeCode"
           autoComplete="sms-otp"
-          maxLength={length}
+          /*
+           * No `maxLength`. It cut a PASTE before `handleChange` could clean it:
+           * "123 456" or "123-456" arrived as "12345" and the code never
+           * completed. `handleChange` keeps the digits and stops at `length`.
+           */
+          /*
+           * The caret is pinned to the end. The text is 1px, centred, over the
+           * whole row — so a tap on the left-hand boxes put the caret BEFORE
+           * the digits already typed, and the next digits went in at the
+           * front: 12 then 3 became 312. A code is only ever typed in order.
+           */
+          selection={{ start: value.length, end: value.length }}
           autoFocus={autoFocus}
           caretHidden
           accessibilityLabel={`Verification code, ${length} digits`}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { StyleSheet, View, type ViewStyle } from 'react-native';
 
 import { Icon, Text, Tooltip } from '@/components/ui';
@@ -31,7 +31,7 @@ export type MealPlanCardProps = { plan: MealPlan };
  * so every slot shows its window — and a meal that is not served says so,
  * rather than being left blank for the reader to interpret.
  */
-export function MealPlanCard({ plan }: MealPlanCardProps) {
+export const MealPlanCard = memo(function MealPlanCard({ plan }: MealPlanCardProps) {
   const { colors, space, radius } = useTheme();
   const yellow = colors.deal;
 
@@ -128,7 +128,7 @@ export function MealPlanCard({ plan }: MealPlanCardProps) {
       ) : null}
     </View>
   );
-}
+});
 
 /* ------------------------------------------------------------------ *
  * HouseRulesRow

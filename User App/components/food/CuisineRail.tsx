@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { memo, useEffect, useMemo } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -94,7 +94,7 @@ const ARC_SHRINK = 0.12;
  * own declared cuisine tags, so this rail is built from THOSE — a real,
  * if coarser, filter — rather than a picture of a filter that does nothing.
  */
-export function CuisineRail({
+export const CuisineRail = memo(function CuisineRail({
   cuisines,
   allPhotos,
   active,
@@ -215,7 +215,7 @@ export function CuisineRail({
       </View>
     </GestureDetector>
   );
-}
+});
 
 /**
  * One tile, placed on the arc.

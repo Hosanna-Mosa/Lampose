@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { PullRefreshControl } from '@/components/ui/PullRefreshControl';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text, SkeletonRows } from '@/components/ui';
@@ -72,11 +73,7 @@ export default function SupportList() {
           paddingBottom: space[8],
         }}
         refreshControl={
-          <RefreshControl
-            refreshing={isFetching && !isPending}
-            onRefresh={() => refetch()}
-            tintColor={colors.brand}
-          />
+          <PullRefreshControl onRefresh={() => refetch()} />
         }
       >
         {isPending ? (

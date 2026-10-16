@@ -1,7 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Icon, Text, TextField } from '@/components/ui';
@@ -60,7 +61,10 @@ export default function RateStayScreen() {
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <StandardHeader title="Rate your stay" onBack={() => router.back()} />
 
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
+        /* A tap on a card, row or button while the keyboard is up does what it
+           says, rather than only closing the keyboard and needing a second tap. */
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ padding: layout.gutter, gap: space[6], paddingBottom: space[8] }}
       >
         {loading ? (
@@ -140,7 +144,7 @@ export default function RateStayScreen() {
             />
           </>
         )}
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </View>
   );
 }

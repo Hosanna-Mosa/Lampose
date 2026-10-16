@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { PullRefreshControl } from '@/components/ui/PullRefreshControl';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 
@@ -375,11 +376,7 @@ function LocalityPicker() {
             }}
             keyboardShouldPersistTaps="handled"
             refreshControl={
-              <RefreshControl
-                refreshing={isFetching && !isPending}
-                onRefresh={() => refetch()}
-                tintColor={colors.brand}
-              />
+              <PullRefreshControl onRefresh={() => refetch()} />
             }
           >
             <Text variant="eyebrow" color="tertiary" style={{ paddingVertical: space[2] }}>

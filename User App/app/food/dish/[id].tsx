@@ -2,6 +2,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { ApiError } from '@/services/api/client';
+import { PullRefreshControl } from '@/components/ui/PullRefreshControl';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StandardHeader } from '@/components/shell';
@@ -45,6 +47,34 @@ export default function DishScreen() {
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StandardHeader title="Dish" onBack={() => router.back()} />
         <FoodMenuSkeleton />
+      </View>
+    );
+  }
+
+  /*
+   * A dish that did not LOAD is not a dish that is gone. A dropped connection
+   * used to land on "This dish is off the menu" — telling somebody offline
+   * that food they can order does not exist. Only the server's own 404 says
+   * that; anything else is a retry.
+   */
+  const lookupFailed = (!dish || !kitchen) && fallback.isError
+    && !(fallback.error instanceof ApiError && fallback.error.status === 404);
+  if (lookupFailed) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <StandardHeader title="Dish" onBack={() => router.back()} />
+        <FoodEmptyState
+          tone="problem"
+          title="Could not open this dish"
+          body="The menu did not answer. The dish is probably fine — this is usually the connection."
+          primaryLabel="Try again"
+          onPrimary={() => {
+            void fallback.refetch();
+          }}
+          secondaryLabel="Back"
+          onSecondary={() => router.back()}
+        />
       </View>
     );
   }
@@ -107,7 +137,9 @@ function DishPage({
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ padding: layout.gutter, paddingBottom: space[8] * 2, gap: space[4] }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} />}
+        /* Spinner for a pull only — the menus refetch on their own every few
+           minutes, and that dropped the spinner over the dish. */
+        refreshControl={<PullRefreshControl onRefresh={onRefresh} />}
       >
         <DishDetailContent dish={dish} open={open} choices={choices} />
       </ScrollView>

@@ -23,6 +23,7 @@ import {
   useWindowDimensions,
   type ListRenderItemInfo,
 } from 'react-native';
+import { PullRefreshControl } from '@/components/ui/PullRefreshControl';
 import Animated, {
   Easing,
   interpolate,
@@ -142,6 +143,8 @@ const CATEGORY_SKELETON_MS = 260;
 
 /** The side move between the stay page and the Food page. */
 const PAGE_SLIDE_MS = 340;
+/** A second tap on a card sooner than this is the same tap — see `openListing`. */
+const OPEN_GUARD_MS = 800;
 
 /**
  * And what the bar becomes once Food is open.
@@ -785,26 +788,17 @@ export default function Home() {
    * which is why the snackbar holds the id rather than the row: the entry
    * that comes back is the server's, with the rent it records at that moment.
    */
+  /* One removal per tap burst. The row goes the instant it is tapped, and the
+     next row slides up under the same thumb — a quick second tap removed a
+     place nobody had aimed at. */
+  const lastRemoval = useRef(0);
   const removeSaved = (entry: SavedEntry) => {
+    const now = Date.now();
+    if (now - lastRemoval.current < 600) return;
+    lastRemoval.current = now;
     toggleSaved(entry.listing.id);
     setUndo(entry);
   };
-
-  /*
-   * Whether Home is the screen on top.
-   *
-   * It stays mounted under every screen pushed over it, and everything
-   * decorative on it — the street scene, the glows, the Food door's pulse —
-   * used to keep animating underneath, slowing every tap on the screen that
-   * was actually showing. See `AmbientMotionContext`.
-   */
-  const [focused, setFocused] = useState(true);
-  useFocusEffect(
-    useCallback(() => {
-      setFocused(true);
-      return () => setFocused(false);
-    }, []),
-  );
 
   /*
    * The feed's card handlers, stable for the screen's lifetime.
@@ -819,7 +813,13 @@ export default function Home() {
   useEffect(() => {
     feedActions.current = { router, requireSignIn, toggleSaved };
   });
+  /* One push per tap burst. The second tap people add when the first seems
+     slow used to push the same listing twice, so Back led to the same page. */
+  const lastOpen = useRef(0);
   const openListing = useCallback((id: string) => {
+    const now = Date.now();
+    if (now - lastOpen.current < OPEN_GUARD_MS) return;
+    lastOpen.current = now;
     feedActions.current.router.push(`/listing/${id}`);
   }, []);
   const toggleListingSaved = useCallback((id: string) => {
@@ -1174,7 +1174,7 @@ export default function Home() {
 
   return (
     /* Nothing decorative animates while another screen covers this one. */
-    <AmbientMotionProvider paused={!focused}>
+    <FocusMotionGate>
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       {/* Dark status-bar icons over the light Explore hero (and its docked
           header) in light mode; light ones in dark mode. */}
@@ -1242,6 +1242,9 @@ export default function Home() {
           </DockedHeader>
 
           <Animated.FlatList
+            /* A tap on a card, row or button while the keyboard is up does what it
+               says, rather than only closing the keyboard and needing a second tap. */
+            keyboardShouldPersistTaps="handled"
             data={feedSkeleton || feedError || total === 0 ? EMPTY_FEED : shown}
             keyExtractor={feedKey}
             renderItem={renderFeedItem}
@@ -1311,7 +1314,9 @@ export default function Home() {
                   chips={quickChips}
                   activeCount={filterCount}
                   onPressFilters={() => setFiltersOpen(true)}
-                  onPressChip={(id) => setActiveDropdown((prev) => (prev === id ? null : id))}
+                  /* Opens only. A toggle let the second of two quick taps —
+                     landing before the dropdown had painted — shut it again. */
+                  onPressChip={(id) => setActiveDropdown(id)}
                   onClearChip={clearChip}
                   activeDropdownId={activeDropdown}
                 />
@@ -1441,11 +1446,7 @@ export default function Home() {
           onScroll={barScroll}
           scrollEventThrottle={16}
           refreshControl={
-            <RefreshControl
-              refreshing={savedFetching && !savedPending}
-              onRefresh={() => refetchSaved()}
-              tintColor={colors.brand}
-            />
+            <PullRefreshControl onRefresh={() => refetchSaved()} />
           }
         >
           {status !== 'signedIn' ? (
@@ -1962,7 +1963,7 @@ export default function Home() {
       </Modal>
 
     </View>
-    </AmbientMotionProvider>
+    </FocusMotionGate>
   );
 }
 
@@ -2112,6 +2113,32 @@ function ModuleTabBar({
       hideEdgeTab={inFood ? foodStrip : stayStrip}
     />
   );
+}
+
+/* ── Whether Home is the screen on top ──────────────────────────────────── */
+
+/**
+ * Home stays mounted under every screen pushed over it, and everything
+ * decorative on it — the street scene, the glows, the Food door's pulse —
+ * used to keep animating underneath, slowing every tap on the screen that
+ * was actually showing. See `AmbientMotionContext`.
+ *
+ * The focus flag lives HERE rather than in Home's state. As Home's state,
+ * opening a listing re-rendered all of Home — both module pages, the feed,
+ * the bar — in the very frame the listing screen was trying to mount, which
+ * was a large part of why a card took a beat (or a second tap) to open.
+ * Here, only the loops that read the context hear it: `children` is the
+ * same element either way, so React skips everything else.
+ */
+function FocusMotionGate({ children }: { children: React.ReactNode }) {
+  const [focused, setFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, []),
+  );
+  return <AmbientMotionProvider paused={!focused}>{children}</AmbientMotionProvider>;
 }
 
 /* ── What hears the scroll crossing the hero ────────────────────────────── */

@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { metaLine } from '@/services/adapters/food.adapter';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
@@ -64,7 +64,15 @@ export function FoodSearch({ onBack }: { onBack?: () => void }) {
   const [recent, setRecent] = useState<readonly string[]>([]);
 
   const areaLabel = locality?.name ?? 'your area';
-  const term = query.trim().toLowerCase();
+  /*
+   * The list filters on a DEFERRED copy of the query. The field itself stays
+   * live on every keystroke; the filtering, which rebuilds a long list, runs
+   * just behind it. Done in the same render, it held the JS thread while the
+   * keyboard was still sending characters, and a fast typist got a jumping
+   * cursor and dropped letters — the bug `AirbnbSearchBar` documents.
+   */
+  const deferredQuery = useDeferredValue(query);
+  const term = deferredQuery.trim().toLowerCase();
 
   /**
    * The single rule for whether a dish can be ordered, matching
