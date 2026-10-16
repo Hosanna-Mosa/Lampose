@@ -54,6 +54,7 @@
 const crypto = require('crypto');
 
 const mongoose = require('mongoose');
+const { watchWrites } = require('../../infrastructure/cache/watchWrites');
 
 /*
  * The green/red dot, as a three-valued field rather than a boolean.
@@ -294,6 +295,10 @@ foodProductSchema.set('toJSON', {
     return ret;
   },
 });
+
+/* Clears that kitchen's cached menu after every committed write — see
+   foodDiscovery.cache.js. */
+watchWrites(foodProductSchema, (change) => require('./foodDiscovery.cache').onProductWrite(change));
 
 const FoodProduct = mongoose.models.FoodProduct
   || mongoose.model('FoodProduct', foodProductSchema, 'food_products');

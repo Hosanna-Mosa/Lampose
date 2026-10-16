@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { watchWrites } = require('../../infrastructure/cache/watchWrites');
 
 // ── 1. Bookings ─────────────────────────────────────────────────────────────
 const partnerBookingSchema = new mongoose.Schema(
@@ -527,6 +528,10 @@ const partnerShareTypeSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+/* A review moves a listing's averageRating / reviewCount, which ride on the
+   cached public feed — see listings/listing.cache.js. */
+watchWrites(partnerReviewSchema, () => require('../listings/listing.cache').onReviewWrite());
 
 module.exports = {
   PartnerBooking: mongoose.models.PartnerBooking || mongoose.model('PartnerBooking', partnerBookingSchema, 'partner_bookings'),

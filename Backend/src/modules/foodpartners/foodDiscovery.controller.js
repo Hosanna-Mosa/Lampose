@@ -93,6 +93,7 @@ const { escapeRegex } = require('../../shared/utils/text');
 const { FOOD_PRICING_CONFIG } = require('./foodPricing');
 const { isBookable } = require('../dineIn/dineIn.rules');
 const { publicDineIn } = require('../dineIn/tableBooking.service');
+const foodCache = require('./foodDiscovery.cache');
 
 const { isOpenNow, PARTNER_TYPES } = FoodRestaurant;
 
@@ -759,9 +760,13 @@ const findAnywhere = ({ filter, skip, limit }) => FoodRestaurant.find(filter)
  * Three shapes of read behind one call, so that the handler holds none of
  * them: located or not, and open-now or not. Only the last combination pages
  * in memory, and only because `isCurrentlyOpen` is derived — see the header.
+ *
+ * `remember(part, load)` is where the cache sits (foodDiscovery.cache.js).
+ * It wraps the two Mongo reads and nothing after them, so the open-now filter
+ * — which depends on the clock — always runs on the way out.
  */
 const collectRestaurants = async ({
-  filter, point, radiusKm, openNow, skip, limit,
+  filter, point, radiusKm, openNow, skip, limit, remember = (_part, load) => load(),
 }) => {
   const fetch = point
     ? (from, size) => findNearby({
@@ -770,7 +775,7 @@ const collectRestaurants = async ({
     : (from, size) => findAnywhere({ filter, skip: from, limit: size });
 
   if (openNow) {
-    const scanned = await fetch(0, OPEN_NOW_SCAN_CAP);
+    const scanned = await remember({ scan: true }, () => fetch(0, OPEN_NOW_SCAN_CAP));
     const open = scanned.filter((doc) => isOpenNow(doc));
 
     return {
@@ -782,12 +787,15 @@ const collectRestaurants = async ({
     };
   }
 
-  const [docs, total] = await Promise.all([
-    fetch(skip, limit),
-    point
-      ? FoodRestaurant.countDocuments(nearbyFilter(filter, point, radiusKm))
-      : FoodRestaurant.countDocuments(filter),
-  ]);
+  const { docs, total } = await remember({ skip, limit }, async () => {
+    const [pageDocs, count] = await Promise.all([
+      fetch(skip, limit),
+      point
+        ? FoodRestaurant.countDocuments(nearbyFilter(filter, point, radiusKm))
+        : FoodRestaurant.countDocuments(filter),
+    ]);
+    return { docs: pageDocs, total: count };
+  });
 
   return { docs, total, capped: false };
 };
@@ -864,7 +872,16 @@ const listRestaurants = async (req, res, next) => {
     let found;
     try {
       found = await collectRestaurants({
-        filter, point, radiusKm, openNow, skip, limit,
+        filter,
+        point,
+        radiusKm,
+        openNow,
+        skip,
+        limit,
+        /* "Near me" is never cached — see foodDiscovery.cache.js. */
+        remember: point ? undefined : (part, load) => foodCache.list({
+          cuisines, search, openNow, partnerType: filter.partnerType, dineIn: dineInOnly, ...part,
+        }, load, res),
       });
     } catch (error) {
       if (!point || !isMissingGeoIndex(error)) throw error;
@@ -976,10 +993,13 @@ const getRestaurant = async (req, res, next) => {
      */
     const restaurantId = asText(req.params.restaurantId).slice(0, MAX_ID_CHARS).toUpperCase();
 
-    const restaurant = await FoodRestaurant
+    /* The documents are cached (foodDiscovery.cache.js), never the reply:
+       `restaurantDetail` and `groupMenu` run on every request, so
+       `isCurrentlyOpen` is always read off the clock now. */
+    const restaurant = await foodCache.restaurant(restaurantId, () => FoodRestaurant
       .findOne({ restaurantId, ...LISTED })
       .select(DETAIL_SELECT)
-      .lean();
+      .lean(), res);
 
     if (!restaurant) {
       logDiscovery({
@@ -997,7 +1017,7 @@ const getRestaurant = async (req, res, next) => {
      * switched everything off comes back with an empty menu and `count: 0`
      * beside an `isCurrentlyOpen` that explains it.
      */
-    const products = await FoodProduct
+    const products = await foodCache.menu(restaurantId, () => FoodProduct
       .find({ restaurantId, isAvailable: true })
       /* `displayOrder` first — `groupMenu` depends on this order — then
          `createdAt`, so a menu nobody has dragged into an order still comes
@@ -1005,7 +1025,7 @@ const getRestaurant = async (req, res, next) => {
          to walk. */
       .sort({ displayOrder: 1, createdAt: 1 })
       .select(MENU_SELECT)
-      .lean();
+      .lean(), res);
 
     const menu = groupMenu(products);
 

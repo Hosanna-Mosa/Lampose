@@ -9,6 +9,7 @@ const {
 const { escapeRegex } = require('../../shared/utils/text');
 const { rowsFor, openForRequest } = require('../inventory/inventory.service');
 const { sharingOptionsFor } = require('./sharing.util');
+const listingCache = require('./listing.cache');
 
 /*
  * Never in the feed, the area counts, or a listing page:
@@ -270,164 +271,178 @@ const getListings = async (req, res, next) => {
       return res.status(400).json({ success: false, code: nearby.error.code, message: nearby.error.message });
     }
 
-    /* A listing the owner deleted from their own app. Excluded here, in the
-       Mongo query, rather than filtered alongside `paused` below — a removed
-       property has no `partner_share_types` rows worth loading availability
-       for, and the point is that it is gone from the feed as completely as a
-       property that never existed. See `removeMyProperty`. */
-    const filter = { status: LISTED };
-
     /*
-     * Near a fix, rather than inside a named area.
-     *
-     * `city`/`locality` below stay exactly as they are — a caller sending
-     * neither, which is what "Use my current location" now does, gets every
-     * category-matching property within the radius regardless of what area
-     * or city it falls in, sorted nearest first (see the ranking below).
-     * A caller could in principle send both; the two conditions simply
-     * combine, same as `category` and `maxPrice` already do.
+     * Everything up to here comes from the property documents alone, so it
+     * is what the cache holds (listing.cache.js). Everything after it — beds,
+     * the owner's pause switch, the ranking that follows from them, paging —
+     * is live on every request. "Near me" is never cached: see that file.
      */
-    if (nearby.point) {
-      filter.location = {
-        $geoWithin: { $centerSphere: [nearby.point, nearby.radiusKm / EARTH_RADIUS_KM] },
-      };
-    }
+    const loadFeed = async () => {
+      /* A listing the owner deleted from their own app. Excluded here, in the
+         Mongo query, rather than filtered alongside `paused` below — a removed
+         property has no `partner_share_types` rows worth loading availability
+         for, and the point is that it is gone from the feed as completely as a
+         property that never existed. See `removeMyProperty`. */
+      const filter = { status: LISTED };
 
-    /*
-     * One category, or several separated by commas — matched by every
-     * spelling the collection has ever stored for it, never by the query
-     * string itself.
-     *
-     * `properties.category` was never migrated when the four display strings
-     * became codes (see `categories.js`): plenty of rows still hold "PG",
-     * "Hostel", "Dormitory", "Co-live". A plain regex built from the query
-     * param only ever matched a row that happened to contain that exact
-     * substring — which is how `?category=Bachelor` kept working (it is a
-     * literal substring of "Bachelor Room") while `?category=HOTEL` silently
-     * excluded every "Dormitory" row from its own feed, even though the meta
-     * screen and every other reader that goes through `normaliseCategory`
-     * counts them as HOTEL. A student saw an area offered as having one hotel
-     * and then, on the Hotels tab, none.
-     *
-     * `categoryQuery` is the same lookup `monitor.controller.js` and
-     * `payoutOnboarding.controller.js` already use for exactly this reason.
-     * Each requested value is normalised first so a bookmarked
-     * `?category=Hotel` or `?category=pg` still resolves the way it always
-     * has.
-     */
-    if (category && category !== 'all') {
-      const codes = String(category)
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean)
-        .map((value) => normaliseCategory(value) || value.toUpperCase());
+      /*
+       * Near a fix, rather than inside a named area.
+       *
+       * `city`/`locality` below stay exactly as they are — a caller sending
+       * neither, which is what "Use my current location" now does, gets every
+       * category-matching property within the radius regardless of what area
+       * or city it falls in, sorted nearest first (see the ranking below).
+       * A caller could in principle send both; the two conditions simply
+       * combine, same as `category` and `maxPrice` already do.
+       */
+      if (nearby.point) {
+        filter.location = {
+          $geoWithin: { $centerSphere: [nearby.point, nearby.radiusKm / EARTH_RADIUS_KM] },
+        };
+      }
 
-      filter.category = { $in: [...new Set(codes.flatMap((code) => categoryQuery(code).$in))] };
-    }
+      /*
+       * One category, or several separated by commas — matched by every
+       * spelling the collection has ever stored for it, never by the query
+       * string itself.
+       *
+       * `properties.category` was never migrated when the four display strings
+       * became codes (see `categories.js`): plenty of rows still hold "PG",
+       * "Hostel", "Dormitory", "Co-live". A plain regex built from the query
+       * param only ever matched a row that happened to contain that exact
+       * substring — which is how `?category=Bachelor` kept working (it is a
+       * literal substring of "Bachelor Room") while `?category=HOTEL` silently
+       * excluded every "Dormitory" row from its own feed, even though the meta
+       * screen and every other reader that goes through `normaliseCategory`
+       * counts them as HOTEL. A student saw an area offered as having one hotel
+       * and then, on the Hotels tab, none.
+       *
+       * `categoryQuery` is the same lookup `monitor.controller.js` and
+       * `payoutOnboarding.controller.js` already use for exactly this reason.
+       * Each requested value is normalised first so a bookmarked
+       * `?category=Hotel` or `?category=pg` still resolves the way it always
+       * has.
+       */
+      if (category && category !== 'all') {
+        const codes = String(category)
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .map((value) => normaliseCategory(value) || value.toUpperCase());
 
-    if (maxPrice && Number.isFinite(Number(maxPrice))) {
-      filter.rent = { $lte: Number(maxPrice) };
-    }
+        filter.category = { $in: [...new Set(codes.flatMap((code) => categoryQuery(code).$in))] };
+      }
 
-    if (search) {
-      const term = new RegExp(escapeRegex(search), 'i');
-      /* Not by owner name: a student typing a person's name found every
-         place that person owns — a lookup nobody should be able to run on a
-         private individual from the public feed. */
-      filter.$or = [
-        { name: term },
-        { place: term },
-        { amenities: term },
-      ];
-    }
+      if (maxPrice && Number.isFinite(Number(maxPrice))) {
+        filter.rent = { $lte: Number(maxPrice) };
+      }
 
-    /* No limit: the Explore page is the only consumer and it pages the render
-       itself, so the response is the whole collection. */
+      if (search) {
+        const term = new RegExp(escapeRegex(search), 'i');
+        /* Not by owner name: a student typing a person's name found every
+           place that person owns — a lookup nobody should be able to run on a
+           private individual from the public feed. */
+        filter.$or = [
+          { name: term },
+          { place: term },
+          { amenities: term },
+        ];
+      }
 
-    const properties = await Property.find(filter).sort({ createdAt: -1 }).lean();
-    /* One lookup for the page, so the feed and the detail screen name the same
-       person — see `ownerNamesFor`. */
-    const ownerNames = await ownerNamesFor(properties);
-    const ownerDigits = (doc) => String(doc.ownerMobile || '').replace(/\D/g, '').slice(-10);
+      /* No limit: the Explore page is the only consumer and it pages the render
+         itself, so the response is the whole collection. */
 
-    /*
-     * One aggregation for the whole page, the same shape `getListingReviews`
-     * computes per listing — see its own note on why an unrated place gets
-     * `null` rather than an invented number. The card used to hardcode
-     * "4.92" and "124 reviews" on every single listing regardless of
-     * whether anyone had ever reviewed it; this is the real figure, which is
-     * `null`/`0` for the overwhelming majority of the catalogue today
-     * because almost nothing has a review yet — an honest empty state, not
-     * a bug, and the card is expected to render accordingly.
-     */
-    // eslint-disable-next-line global-require
-    const { PartnerReview } = require('../partners/partnerDomains.model');
-    const propertyIds = properties.map((doc) => String(doc._id));
-    const ratingRows = propertyIds.length
-      ? await PartnerReview.aggregate([
-        { $match: { propertyId: { $in: propertyIds } } },
-        { $group: { _id: '$propertyId', avg: { $avg: '$rating' }, count: { $sum: 1 } } },
-      ])
-      : [];
-    const ratingById = new Map(ratingRows.map((row) => [
-      row._id,
-      { averageRating: Math.round(row.avg * 10) / 10, reviewCount: row.count },
-    ]));
-    /*
-     * Computed from the raw document, before `formatListing` — which has no
-     * use for the pin and does not carry it onto the formatted listing —
-     * strips it. `$geoWithin` filters by the circle but reports no distance
-     * (unlike `$geoNear`, which cannot run inside this pipeline's plain
-     * `find` — see the header on `foodDiscovery.controller.js` for why that
-     * file uses the aggregation instead), so it is recomputed here once per
-     * property with the exact same fix already used to build the filter.
-     */
-    const distanceById = new Map();
-    if (nearby.point) {
-      const [fixLng, fixLat] = nearby.point;
-      for (const doc of properties) {
-        const pin = doc.location && doc.location.coordinates;
-        if (Array.isArray(pin) && pin.length === 2) {
-          distanceById.set(String(doc._id), distanceKm(fixLat, fixLng, pin[1], pin[0]));
+      const properties = await Property.find(filter).sort({ createdAt: -1 }).lean();
+      /* One lookup for the page, so the feed and the detail screen name the same
+         person — see `ownerNamesFor`. */
+      const ownerNames = await ownerNamesFor(properties);
+      const ownerDigits = (doc) => String(doc.ownerMobile || '').replace(/\D/g, '').slice(-10);
+
+      /*
+       * One aggregation for the whole page, the same shape `getListingReviews`
+       * computes per listing — see its own note on why an unrated place gets
+       * `null` rather than an invented number. The card used to hardcode
+       * "4.92" and "124 reviews" on every single listing regardless of
+       * whether anyone had ever reviewed it; this is the real figure, which is
+       * `null`/`0` for the overwhelming majority of the catalogue today
+       * because almost nothing has a review yet — an honest empty state, not
+       * a bug, and the card is expected to render accordingly.
+       */
+      // eslint-disable-next-line global-require
+      const { PartnerReview } = require('../partners/partnerDomains.model');
+      const propertyIds = properties.map((doc) => String(doc._id));
+      const ratingRows = propertyIds.length
+        ? await PartnerReview.aggregate([
+          { $match: { propertyId: { $in: propertyIds } } },
+          { $group: { _id: '$propertyId', avg: { $avg: '$rating' }, count: { $sum: 1 } } },
+        ])
+        : [];
+      const ratingById = new Map(ratingRows.map((row) => [
+        row._id,
+        { averageRating: Math.round(row.avg * 10) / 10, reviewCount: row.count },
+      ]));
+      /*
+       * Computed from the raw document, before `formatListing` — which has no
+       * use for the pin and does not carry it onto the formatted listing —
+       * strips it. `$geoWithin` filters by the circle but reports no distance
+       * (unlike `$geoNear`, which cannot run inside this pipeline's plain
+       * `find` — see the header on `foodDiscovery.controller.js` for why that
+       * file uses the aggregation instead), so it is recomputed here once per
+       * property with the exact same fix already used to build the filter.
+       */
+      const distanceById = new Map();
+      if (nearby.point) {
+        const [fixLng, fixLat] = nearby.point;
+        for (const doc of properties) {
+          const pin = doc.location && doc.location.coordinates;
+          if (Array.isArray(pin) && pin.length === 2) {
+            distanceById.set(String(doc._id), distanceKm(fixLat, fixLng, pin[1], pin[0]));
+          }
         }
       }
-    }
-    let listings = properties.map((doc) => {
-      const rating = ratingById.get(String(doc._id));
-      return {
-        ...formatListing(doc, ownerNames.get(ownerDigits(doc)) || ''),
-        /* Null off a radius search, not just absent, so a card template has
-           one shape whether or not "near me" was asked for. */
-        distanceKm: nearby.point ? (distanceById.get(String(doc._id)) ?? null) : null,
-        averageRating: rating ? rating.averageRating : null,
-        reviewCount: rating ? rating.reviewCount : 0,
-      };
-    });
+      let listings = properties.map((doc) => {
+        const rating = ratingById.get(String(doc._id));
+        return {
+          ...formatListing(doc, ownerNames.get(ownerDigits(doc)) || ''),
+          /* Null off a radius search, not just absent, so a card template has
+             one shape whether or not "near me" was asked for. */
+          distanceKm: nearby.point ? (distanceById.get(String(doc._id)) ?? null) : null,
+          averageRating: rating ? rating.averageRating : null,
+          reviewCount: rating ? rating.reviewCount : 0,
+        };
+      });
 
-    /* City and locality are both derived from free-text `place` after the
-       fact, so neither can be part of the database query. */
-    if (city && city !== 'All Cities') {
-      listings = listings.filter((item) => item.city.toLowerCase() === String(city).toLowerCase());
-    }
+      /* City and locality are both derived from free-text `place` after the
+         fact, so neither can be part of the database query. */
+      if (city && city !== 'All Cities') {
+        listings = listings.filter((item) => item.city.toLowerCase() === String(city).toLowerCase());
+      }
 
-    /*
-     * The AREA, not the city.
-     *
-     * Added because the two were being confused, with a visible cost: the
-     * mobile app's entry screen offers areas ("HSR Layout Sector 1") and
-     * states how many places each holds, and then asked for the feed by city.
-     * A row promising one place led to a feed of three, spread across
-     * Koramangala and both HSR sectors — the count looked broken when what
-     * was actually wrong was the question the next screen asked.
-     *
-     * Matched against the same `localityOf` derivation the facets endpoint
-     * groups by, so an area offered there always matches here. Exact rather
-     * than partial: "HSR Layout Sector 1" must not pull in Sector 2.
-     */
-    if (locality) {
-      const wanted = String(locality).trim().toLowerCase();
-      listings = listings.filter((item) => String(item.locality).toLowerCase() === wanted);
-    }
+      /*
+       * The AREA, not the city.
+       *
+       * Added because the two were being confused, with a visible cost: the
+       * mobile app's entry screen offers areas ("HSR Layout Sector 1") and
+       * states how many places each holds, and then asked for the feed by city.
+       * A row promising one place led to a feed of three, spread across
+       * Koramangala and both HSR sectors — the count looked broken when what
+       * was actually wrong was the question the next screen asked.
+       *
+       * Matched against the same `localityOf` derivation the facets endpoint
+       * groups by, so an area offered there always matches here. Exact rather
+       * than partial: "HSR Layout Sector 1" must not pull in Sector 2.
+       */
+      if (locality) {
+        const wanted = String(locality).trim().toLowerCase();
+        listings = listings.filter((item) => String(item.locality).toLowerCase() === wanted);
+      }
+
+      return listings;
+    };
+
+    const listings = nearby.point
+      ? await loadFeed()
+      : await listingCache.feed(req.query, loadFeed, res);
 
     const withBeds = await withAvailability(listings);
 
@@ -570,13 +585,26 @@ const getListingById = async (req, res, next) => {
 
     /* findById on a non-ObjectId throws a CastError; checking the shape first
        lets a bad id be a plain 404 instead. */
-    const property = /^[0-9a-fA-F]{24}$/.test(id)
-      ? await Property.findById(id).lean()
+    /* The listing as its document describes it — cached (listing.cache.js),
+       with null for "not found" kept briefly too. Beds and the pause switch
+       below are always live. */
+    const entry = /^[0-9a-fA-F]{24}$/.test(id)
+      ? await listingCache.detail(id, async () => {
+        const property = await Property.findById(id).lean();
+
+        /* A review listing is answered exactly like one that does not exist — it
+           is for the review owner's own dashboard, never for a student. */
+        if (!property || property.status === 'review') return null;
+
+        /* The one screen the booking flow reads. Whoever the student is told to
+           expect at the door has to be the person who actually holds the account. */
+        const ownerNames = await ownerNamesFor([property]);
+        const digits = String(property.ownerMobile || '').replace(/\D/g, '').slice(-10);
+        return { status: property.status, listing: formatListing(property, ownerNames.get(digits) || '') };
+      }, res)
       : null;
 
-    /* A review listing is answered exactly like one that does not exist — it
-       is for the review owner's own dashboard, never for a student. */
-    if (!property || property.status === 'review') {
+    if (!entry) {
       return res.status(404).json({
         success: false,
         code: 'NOT_FOUND',
@@ -585,13 +613,7 @@ const getListingById = async (req, res, next) => {
       });
     }
 
-    /* The one screen the booking flow reads. Whoever the student is told to
-       expect at the door has to be the person who actually holds the account. */
-    const ownerNames = await ownerNamesFor([property]);
-    const digits = String(property.ownerMobile || '').replace(/\D/g, '').slice(-10);
-    const [listing] = await withAvailability([
-      formatListing(property, ownerNames.get(digits) || ''),
-    ]);
+    const [listing] = await withAvailability([entry.listing]);
 
     /*
      * A removed listing still resolves — same reasoning as a paused one: a
@@ -599,7 +621,7 @@ const getListingById = async (req, res, next) => {
      * must not turn into a 404. It just cannot be requested any more, which
      * `withAvailability` has no way to know since it never sees `status`.
      */
-    if (property.status === 'removed') {
+    if (entry.status === 'removed') {
       listing.removed = true;
       listing.requestable = false;
     }

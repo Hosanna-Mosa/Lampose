@@ -128,6 +128,27 @@ const config = {
     maxResponseChars: Number(process.env.REQUEST_LOG_RESPONSE_CHARS) || 900,
   },
 
+  /* The Redis read cache in front of the public stay and food feeds — see
+     src/infrastructure/cache/cache.js. Off unless CACHE_ENABLED says so AND a
+     REDIS_URL is set; off means every read goes to Mongo exactly as before.
+     Credentials and TLS ride in the URL (`rediss://` for TLS) or in
+     REDIS_USERNAME / REDIS_PASSWORD — never in source. */
+  cache: {
+    enabled: bool(process.env.CACHE_ENABLED, false),
+    url: String(process.env.REDIS_URL || '').trim(),
+    username: process.env.REDIS_USERNAME || undefined,
+    password: process.env.REDIS_PASSWORD || undefined,
+    /* Short on purpose: a cache that waits longer than the query it saves is
+       not saving anything. A command past this is a miss, and Mongo answers. */
+    commandTimeoutMs: Number(process.env.CACHE_COMMAND_TIMEOUT_MS) || 150,
+    ttl: {
+      detail: Number(process.env.CACHE_TTL_DETAIL) || 600,
+      list: Number(process.env.CACHE_TTL_LIST) || 120,
+      menu: Number(process.env.CACHE_TTL_MENU) || 300,
+      notFound: Number(process.env.CACHE_TTL_NOT_FOUND) || 30,
+    },
+  },
+
   db: {
     uri: mongoUri,
     dbName,

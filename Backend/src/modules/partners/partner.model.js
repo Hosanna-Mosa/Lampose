@@ -44,6 +44,7 @@
    constant time — the same utility the visit-request and customer flows use.
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
+const { watchWrites } = require('../../infrastructure/cache/watchWrites');
 const bcrypt = require('bcryptjs');
 
 const { addressSchema, publicAddress } = require('../../shared/utils/address');
@@ -385,6 +386,10 @@ partnerSchema.index(
   { email: 1 },
   { unique: true, partialFilterExpression: { email: { $type: 'string', $gt: '' } } },
 );
+
+/* The public listing shows the VERIFIED partner's name, so a change to it
+   clears the stay cache. Only that — see listing.cache.js#onPartnerWrite. */
+watchWrites(partnerSchema, (change) => require('../listings/listing.cache').onPartnerWrite(change));
 
 const Partner = mongoose.models.AppPartner || mongoose.model('AppPartner', partnerSchema);
 
