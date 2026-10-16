@@ -6,7 +6,7 @@ import type { StayCategory } from '@/constants/tokens';
 import type { Locality } from '@/types/auth';
 import type { BackendListingMeta } from '@/services/api/types';
 import { fetchListing, fetchListingReviews, fetchListingMeta, fetchListings, type ListingsResult } from '@/services/api/listings.api';
-import type { Listing } from '@/types/listing';
+import { availableFirst, type Listing } from '@/types/listing';
 import { ApiError } from '@/services/api/client';
 import { guessLocality, toLocalities } from '@/services/adapters/places.adapter';
 import { queryKeys } from './keys';
@@ -165,13 +165,16 @@ export function useListingFeed(options: UseListingFeedOptions = {}) {
 
   const pages = query.data?.pages;
   /* De-duplicated by id: a listing added while somebody scrolls shifts every
-     offset by one, and the row on the edge would otherwise arrive twice. */
+     offset by one, and the row on the edge would otherwise arrive twice.
+     Full listings go last WITHIN their page, not across the feed: sorted over
+     every loaded page, a full card the student had scrolled past jumped to
+     the new end of the list each time a page arrived, and the feed lurched. */
   const listings = useMemo(() => {
     if (!pages) return EMPTY_LISTINGS;
     const seen = new Set<string>();
     const all: Listing[] = [];
     for (const page of pages) {
-      for (const listing of page.listings) {
+      for (const listing of availableFirst(page.listings)) {
         if (seen.has(listing.id)) continue;
         seen.add(listing.id);
         all.push(listing);

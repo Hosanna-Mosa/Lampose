@@ -1,11 +1,11 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 
-import { Button, Divider, Icon, SearchField, Text } from '@/components/ui';
+import { Button, Divider, Icon, SearchField, Text, SkeletonRows } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
 import { CurrentLocationRow, LocalityRow, NearbyRadiusDialog } from '@/components/auth';
 import { useAppState } from '@/context/AppStateContext';
@@ -257,11 +257,11 @@ function LocalityPicker() {
         nothing concludes we do not cover their city.
       */}
       {isPending ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[3] }}>
-          <ActivityIndicator color={colors.brand} />
+        <View style={{ flex: 1, padding: layout.gutter, gap: space[4] }}>
           <Text variant="caption" color="tertiary">
             Finding the areas we cover…
           </Text>
+          <SkeletonRows count={7} lead="none" label="Finding the areas we cover" />
         </View>
       ) : error || !localities.length ? (
         <View style={{ flex: 1, justifyContent: 'center', padding: layout.gutter, gap: space[3] }}>

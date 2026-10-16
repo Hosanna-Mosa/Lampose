@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 
-import { Icon, Spinner, Text, type IconName } from '@/components/ui';
+import { Icon, Text, type IconName, SkeletonRows } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { useBottomBar } from '@/context/BottomBarContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -174,9 +174,7 @@ export function TableBookingsPanel({ onHome }: { onHome: () => void }) {
   }
   if (loading || !signedIn) {
     return (
-      <View style={{ padding: space[7], alignItems: 'center' }}>
-        <Spinner color={colors.brand} />
-      </View>
+      <SkeletonRows count={3} lead="square" card label="Loading your table bookings" style={{ padding: space[4] }} />
     );
   }
   if (error && !bookings.length) {

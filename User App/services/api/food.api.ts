@@ -47,7 +47,22 @@ export type KitchenQuery = {
   partnerType?: 'food' | 'meat' | null;
 };
 
-type KitchenListResponse = { success?: boolean; data?: BackendKitchen[] };
+type KitchenListResponse = {
+  success?: boolean;
+  data?: BackendKitchen[];
+  total?: number;
+  page?: number;
+  pages?: number;
+};
+
+/** One page of the kitchen feed, and whether the server holds another. */
+export type KitchenPage = {
+  kitchens: Kitchen[];
+  /** The server's count for the whole feed, not this page. */
+  total: number;
+  page: number;
+  hasMore: boolean;
+};
 type KitchenDetailResponse = {
   success?: boolean;
   data?: { restaurant?: BackendKitchen; menu?: BackendMenuGroup[] };
@@ -68,28 +83,31 @@ const clean = (query: KitchenQuery): Record<string, string> => {
   if (query.cuisine?.trim()) out.cuisine = query.cuisine.trim();
   if (query.search?.trim()) out.search = query.search.trim();
   if (query.openNow) out.openNow = 'true';
-  /* No caller sets a limit, and the server's default page is small enough to
-     push a newer-listed kitchen off the feed. Ask for the most it will give
-     (it caps at 50). */
+  /* The feed pages (`useKitchenFeed` asks for 10); anything that does not say
+     gets the most the server will give (it caps at 50). */
   out.limit = String(query.limit || FEED_LIMIT);
   if (query.partnerType) out.partnerType = query.partnerType;
   return out;
 };
 
 /**
- * The kitchen feed.
+ * One page of the kitchen feed (1-based, as the server counts them).
  *
  * Sections come back empty on a list row — the list endpoint projects the
  * columns a card draws and deliberately does not carry a whole menu, so the
  * menu section names are only known once a kitchen is opened.
  */
-export async function fetchKitchens(query: KitchenQuery = {}): Promise<Kitchen[]> {
-  const search = new URLSearchParams(clean(query)).toString();
-  const path = search ? `${endpoints.foodKitchens}?${search}` : endpoints.foodKitchens;
+export async function fetchKitchenPage(query: KitchenQuery = {}, page = 1): Promise<KitchenPage> {
+  const params = clean(query);
+  if (page > 1) params.page = String(page);
+  const path = `${endpoints.foodKitchens}?${new URLSearchParams(params).toString()}`;
 
   const res = await api.get<KitchenListResponse>(path);
   const rows = Array.isArray(res?.data) ? res.data : [];
-  return rows.filter((row) => row?.restaurantId).map((row) => toKitchen(row));
+  const kitchens = rows.filter((row) => row?.restaurantId).map((row) => toKitchen(row));
+  const total = typeof res?.total === 'number' ? res.total : kitchens.length;
+  const pages = typeof res?.pages === 'number' ? res.pages : page;
+  return { kitchens, total, page, hasMore: page < pages && rows.length > 0 };
 }
 
 /** One kitchen with its whole menu, grouped the way the kitchen arranged it. */

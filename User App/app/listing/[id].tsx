@@ -1,16 +1,14 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 
-import {
-  BottomSheet, Button, Checkbox, Icon, InlineAlert, RentDisplay, Text, TextField, useAlert,
-  type IconName,
-} from '@/components/ui';
+import { BottomSheet, Button, Checkbox, Icon, InlineAlert, RentDisplay, Text, TextField, useAlert, type IconName, SkeletonDetail } from '@/components/ui';
 import {
   PhotoHeader,
   PhotoHero,
+  StandardHeader,
   StateTemplate,
   StickyCtaBar,
   usePhotoHeroHeight,
@@ -257,10 +255,13 @@ export default function ListingDetail() {
    * a place is gone when it is merely slow.
    */
   if (isPending) {
+    /* The page it is about to be - the photo, the name, the blocks under it -
+       with a way back, rather than a spinner on a blank screen. */
     return (
-      <View style={[{ flex: 1, backgroundColor: colors.bg }, styles.centre]}>
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-        <ActivityIndicator color={colors.brand} />
+        <StandardHeader title="" onBack={() => goBack()} />
+        <SkeletonDetail hero={heroHeight} blocks={3} label="Loading this place" />
       </View>
     );
   }

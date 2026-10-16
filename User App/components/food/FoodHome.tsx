@@ -30,7 +30,7 @@ import { vegModeOf, type Dish, type Kitchen, type VegMode } from '@/types/food';
 
 import { DishTile } from './DishRow';
 import { foodHref } from './routes';
-import { FoodEmptyState, FoodFeedSkeleton } from './FoodStates';
+import { CuisineRailSkeleton, FoodEmptyState, RestaurantCardSkeleton } from './FoodStates';
 import { FoodNotice, FoodSectionHeader } from './FoodNotices';
 import { VegModeSheet } from './VegModeSheet';
 import { VegModeTransition } from './VegModeTransition';
@@ -140,6 +140,9 @@ export function FoodHome({
     loadingMenus,
     error,
     refetch,
+    loadingMore,
+    fetchMore,
+    loadAll,
   } = useFoodCatalogue();
   const { colors, space, layout, radius } = useTheme();
   const reduceMotion = useReduceMotion();
@@ -204,6 +207,10 @@ export function FoodHome({
      second to re-assert the same boolean is the version of this that drops
      frames. */
   const underHeader = useRef(true);
+  /* Read from the scroll handler without making it a dependency — `fetchMore`
+     is rebuilt whenever a page starts or finishes arriving. */
+  const fetchMoreRef = useRef(fetchMore);
+  fetchMoreRef.current = fetchMore;
   /*
    * How the search band is painted, on the SAME crossing the app bar above it
    * uses — held in a shared value rather than in state.
@@ -239,7 +246,16 @@ export function FoodHome({
   const reportScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       barScroll(event);
-      const y = event.nativeEvent.contentOffset.y;
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      const y = contentOffset.y;
+
+      /* The next ten kitchens, asked for while the last few are still a
+         screen and a half away — the stays feed's `onEndReachedThreshold` —
+         so scrolling rarely meets the skeleton. A no-op while a page is
+         already coming or none is left. */
+      if (contentSize.height - (y + layoutMeasurement.height) < layoutMeasurement.height * 1.5) {
+        fetchMoreRef.current();
+      }
       /* 2pt of deadband, so a resting thumb's jitter is not a direction. */
       const goingUp = y < lastY.current - 2;
       lastY.current = y;
@@ -415,6 +431,16 @@ export function FoodHome({
   }, [vegFilteredKitchens, cuisineFilter, cheapOnly, hasCheapDish]);
   const openKitchens = kitchens.filter((kitchen) => kitchenOpen(kitchen));
 
+  /* A filter only the device can apply — cuisine, "Under ₹100", pure veg
+     kitchens — is only right over every kitchen, not over the pages that
+     happen to be loaded; otherwise "No kitchens match" could be said with a
+     match on page three. So any of them pages the rest of the feed in, the
+     way the stays feed asks for everything when it filters on the device. */
+  const filtering = !!cuisineFilter || cheapOnly || preferences.vegRestaurantsOnly;
+  useEffect(() => {
+    if (filtering) loadAll();
+  }, [filtering, loadAll]);
+
   /* Whether the CURRENT list is empty because of veg mode specifically (the
      existing, already-handled case) or because of the rail's own filters —
      two different empty states with two different "clear" actions, decided
@@ -491,11 +517,13 @@ export function FoodHome({
    * student has been approved. Only the middle one is worth retrying, only the
    * last one is about kitchens rather than about the network, and the first
    * one is not a state at all — it is a wait, and it gets the layout it is
-   * about to become rather than a sentence apologising for itself.
+   * about to become rather than a sentence apologising for itself: the real
+   * banner and search band (bundled, so they need no network), with the rail
+   * and the cards as skeletons where they will land — as the stays feed does.
    */
-  if (loading && allKitchens.length === 0) return <FoodFeedSkeleton />;
+  const showSkeleton = loading && allKitchens.length === 0;
 
-  if (error && allKitchens.length === 0) {
+  if (!showSkeleton && error && allKitchens.length === 0) {
     return (
       <FoodEmptyState
         tone="problem"
@@ -508,7 +536,7 @@ export function FoodHome({
     );
   }
 
-  if (allKitchens.length === 0) {
+  if (!showSkeleton && allKitchens.length === 0) {
     return (
       <FoodEmptyState
         title={`No kitchen near ${areaLabel} yet`}
@@ -598,12 +626,16 @@ export function FoodHome({
           instead, which is the difference between a rail that sits close
           under the banner and one that floats. Tuned to leave the risen end
           tiles a few points clear of the banner's own bottom edge. */}
-      <View onLayout={(event) => setRailTop(event.nativeEvent.layout.y)}
-        /* The veg-mode note, when it shows, sits between the banner and the
-           rail, so the rail only tucks under the banner without it. */
-        style={{ marginTop: vegMode === 'off' ? -RAIL_TUCK : -space[3] }}>
-        {cuisineRail}
-      </View>
+      {showSkeleton ? (
+        <CuisineRailSkeleton />
+      ) : (
+        <View onLayout={(event) => setRailTop(event.nativeEvent.layout.y)}
+          /* The veg-mode note, when it shows, sits between the banner and the
+             rail, so the rail only tucks under the banner without it. */
+          style={{ marginTop: vegMode === 'off' ? -RAIL_TUCK : -space[3] }}>
+          {cuisineRail}
+        </View>
+      )}
 
       {/* The order in flight, mirrored here so it is not something you have to
           go looking for. Orders holds the full version. */}
@@ -636,6 +668,7 @@ export function FoodHome({
       ) : null}
 
       {/* 2 — who is cooking, as a single column of full-width cards */}
+      {showSkeleton ? <RestaurantCardSkeleton count={2} /> : (
       <View style={{ gap: space[2] }}>
         <View style={{ paddingHorizontal: layout.gutter }}>
           <FoodSectionHeader
@@ -688,7 +721,11 @@ export function FoodHome({
             ))}
           </View>
         )}
+
+        {/* The next page, at the size it will arrive at. */}
+        {loadingMore && !vegOnlyEmptied && !railEmptied ? <RestaurantCardSkeleton count={1} /> : null}
       </View>
+      )}
 
       {/* 3 — what is cheap. A rail, because this is browsing rather than deciding. */}
       {cheap.length ? (
@@ -775,6 +812,7 @@ export function FoodHome({
         )
       ) : null}
 
+      {showSkeleton ? null : (
       <View style={{ paddingHorizontal: layout.gutter, gap: space[2] }}>
         <Pressable
           onPress={() => router.push(foodHref.favourites)}
@@ -824,6 +862,7 @@ export function FoodHome({
           <Icon name="chevronRight" size={16} color={colors.textTertiary} />
         </Pressable>
       </View>
+      )}
 
       {/*
         The honest footer.
@@ -915,7 +954,10 @@ export function FoodHome({
     </View>
 
     {/* The rail's pinned copy, just under the band. Its ground and hairline
-        continue the band's, so the two read as one piece of chrome. */}
+        continue the band's, so the two read as one piece of chrome. Not while
+        the skeleton shows: the feed's own rail is not laid out yet, so there
+        is no crossing to pin it at. */}
+    {showSkeleton ? null : (
     <Animated.View
       pointerEvents={railPinned ? 'auto' : 'none'}
       style={[
@@ -930,6 +972,7 @@ export function FoodHome({
     >
       {cuisineRail}
     </Animated.View>
+    )}
 
     <CuisineSheet
       visible={browseOpen}

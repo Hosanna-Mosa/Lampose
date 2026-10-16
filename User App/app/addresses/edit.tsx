@@ -44,7 +44,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View, type TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Icon, Text, TextField } from '@/components/ui';
+import { Button, Icon, Text, TextField, SkeletonDetail } from '@/components/ui';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { StandardHeader } from '@/components/shell';
 import { queryKeys } from '@/services';
@@ -342,9 +342,7 @@ export default function EditAddressScreen() {
         showsVerticalScrollIndicator={false}
       >
         {loading ? (
-          <Text variant="body" color="tertiary">
-            Loading…
-          </Text>
+          <SkeletonDetail blocks={5} label="Loading this address" style={{ marginHorizontal: -layout.gutter }} />
         ) : (
           <>
             <View style={{ gap: space[2] }}>

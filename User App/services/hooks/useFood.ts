@@ -1,6 +1,12 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 
-import { fetchDish, fetchKitchen, fetchKitchens, type KitchenQuery } from '@/services/api/food.api';
+import {
+  fetchDish,
+  fetchKitchen,
+  fetchKitchenPage,
+  type KitchenPage,
+  type KitchenQuery,
+} from '@/services/api/food.api';
 import { ApiError } from '@/services/api/client';
 import { queryKeys } from './keys';
 
@@ -47,13 +53,25 @@ const retry = (count: number, error: unknown) => {
   return count < 1;
 };
 
-export type UseKitchensOptions = KitchenQuery & { enabled?: boolean };
+/** How many kitchens one page of the food feed holds — the stays feed's size. */
+export const KITCHEN_PAGE_SIZE = 10;
 
-/** Every listed kitchen the query matches, nearest first when given a pin. */
-export function useKitchens({ enabled = true, ...query }: UseKitchensOptions = {}) {
-  return useQuery({
-    queryKey: queryKeys.foodKitchenList(query),
-    queryFn: () => fetchKitchens(query),
+export type UseKitchenFeedOptions = Omit<KitchenQuery, 'limit'> & { enabled?: boolean };
+
+/**
+ * The kitchen feed, a page at a time, nearest first when given a pin.
+ *
+ * It used to ask for fifty kitchens in one go and then a menu for each, before
+ * the home screen could draw a card. Now it asks for `KITCHEN_PAGE_SIZE`, and
+ * the screen calls `fetchNextPage` as the student nears the end — the same
+ * shape as `useListingFeed` on the stay side.
+ */
+export function useKitchenFeed({ enabled = true, ...query }: UseKitchenFeedOptions = {}) {
+  return useInfiniteQuery({
+    queryKey: [...queryKeys.foodKitchenList({ ...query, limit: KITCHEN_PAGE_SIZE }), 'feed'],
+    queryFn: ({ pageParam }) => fetchKitchenPage({ ...query, limit: KITCHEN_PAGE_SIZE }, pageParam),
+    initialPageParam: 1,
+    getNextPageParam: (last: KitchenPage) => (last.hasMore ? last.page + 1 : undefined),
     staleTime: STALE_MS,
     refetchInterval: STALE_MS,
     enabled,

@@ -1,11 +1,11 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Icon, Text } from '@/components/ui';
+import { Button, Icon, Text, SkeletonDetail } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { VerificationCodeDisplay } from '@/components/booking';
 import { DirectionsButton } from '@/components/discovery';
@@ -197,13 +197,10 @@ export default function Booked() {
   /* A fetch in flight is not a missing booking. Showing "not found" while the
      listing loads would tell a student their confirmation had gone. */
   if (isPending) {
-    // `styles.centre` only centres horizontally and is used by blocks that
-    // rely on that, so centring both axes is inline rather than a change to it.
     return (
-      <View
-        style={[styles.flex, { backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }]}
-      >
-        <ActivityIndicator color={colors.brand} />
+      <View style={[styles.flex, { backgroundColor: colors.bg }]}>
+        <StandardHeader title="Confirmed" onBack={() => router.replace('/home')} />
+        <SkeletonDetail blocks={4} label="Loading your booking" />
       </View>
     );
   }

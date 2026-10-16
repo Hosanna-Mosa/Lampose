@@ -5,7 +5,7 @@ import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { Button, Icon, Text } from '@/components/ui';
+import { Button, Icon, Text, SkeletonDetail } from '@/components/ui';
 import { StandardHeader, StateTemplate } from '@/components/shell';
 import { BookingTimeline, VerificationCodeDisplay } from '@/components/booking';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -298,9 +298,7 @@ export default function BookingDetail() {
       <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StandardHeader title="Booking" onBack={() => router.back()} />
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Text variant="body" color="tertiary">Loading…</Text>
-        </View>
+        <SkeletonDetail blocks={4} label="Loading your booking" />
       </View>
     );
   }

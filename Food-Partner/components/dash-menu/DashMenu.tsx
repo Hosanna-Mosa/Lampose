@@ -156,18 +156,33 @@ export function DashMenu() {
       <ScreenTitle
         title="Menu Management"
         subtitle={`${products.length} Dish${products.length === 1 ? "" : "es"} · ${availableCount} Active`}
-        right={
-          <Button
-            title="Add Dish"
-            size="sm"
-            icon={<Ionicons name="add" size={18} color={ui.onBrand} />}
-            onPress={() => router.push("/product/new")}
-          />
-        }
       />
 
       {/* ── Search and filters ─────────────────────────────────────────── */}
       <View style={styles.controls}>
+        {/* "Add Dish" is the one-dish form. "Bulk Upload" is many dishes from
+            an Excel sheet, each with its photo — see `MenuSheetScreen`. */}
+        <View style={styles.titleActions}>
+          <View style={styles.action}>
+            <Button
+              title="Bulk Upload"
+              size="sm"
+              variant="secondary"
+              fullWidth
+              icon={<Ionicons name="cloud-upload-outline" size={16} color={ui.text} />}
+              onPress={() => router.push("/menu-sheet")}
+            />
+          </View>
+          <View style={styles.action}>
+            <Button
+              title="Add Dish"
+              size="sm"
+              fullWidth
+              icon={<Ionicons name="add" size={18} color={ui.onBrand} />}
+              onPress={() => router.push("/product/new")}
+            />
+          </View>
+        </View>
         <TextField
           value={search}
           onChangeText={setSearch}
@@ -331,6 +346,8 @@ function DishCard({
 }
 
 const styles = StyleSheet.create({
+  titleActions: { flexDirection: "row", gap: 10 },
+  action: { flex: 1 },
   controls: { paddingHorizontal: 16, gap: 12 },
   list: { paddingHorizontal: 16, gap: 22 },
   loader: { marginTop: 40 },

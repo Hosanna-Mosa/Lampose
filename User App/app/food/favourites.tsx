@@ -1,10 +1,10 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { SegmentedControl, Text } from '@/components/ui';
+import { SegmentedControl, Text, SkeletonRows } from '@/components/ui';
 import { StandardHeader } from '@/components/shell';
 import {
   DishRow,
@@ -31,7 +31,9 @@ const TABS = ['Dishes', 'Kitchens'] as const;
  * list that reorders itself is a list you cannot learn.
  */
 export default function FavouritesScreen() {
-  const { findDish, findKitchen, kitchenOpen } = useFoodCatalogue();
+  const { findDish, findKitchen, kitchenOpen, loadAll } = useFoodCatalogue();
+  /* A favourite can be from any kitchen, not only the first page of Home's. */
+  useEffect(loadAll, [loadAll]);
   const { colors, space, layout, radius, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -96,9 +98,13 @@ export default function FavouritesScreen() {
       <View style={{ flex: 1, backgroundColor: colors.bg, paddingBottom: insets.bottom }}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <StandardHeader title="Favourites" onBack={() => router.back()} />
-        <View style={{ padding: layout.gutter }}>
-          <Text variant="body" color="tertiary">Loading your favourites…</Text>
-        </View>
+        <SkeletonRows
+          count={5}
+          lead="square"
+          card
+          label="Loading your favourites"
+          style={{ padding: layout.gutter }}
+        />
       </View>
     );
   }

@@ -69,10 +69,15 @@ export {
   ProgressBar,
   Skeleton,
   SkeletonCard,
+  SkeletonPulse,
+  SkeletonRows,
+  SkeletonDetail,
   CountdownRing,
   type SpinnerProps,
   type ProgressBarProps,
   type SkeletonProps,
+  type SkeletonRowsProps,
+  type SkeletonDetailProps,
   type CountdownRingProps,
 } from './Loading';
 

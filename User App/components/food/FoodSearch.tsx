@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { metaLine } from '@/services/adapters/food.adapter';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
@@ -45,7 +45,9 @@ type PriceBand = 'any' | 'under80' | 'under150';
  * to Food's Home — it leaves the module entirely.
  */
 export function FoodSearch({ onBack }: { onBack?: () => void }) {
-  const { dishes: allDishes, findKitchen, kitchensFor, kitchens, kitchenOpen } = useFoodCatalogue();
+  const { dishes: allDishes, findKitchen, kitchensFor, kitchens, kitchenOpen, loadAll } = useFoodCatalogue();
+  /* Search answers over every kitchen, not the pages Home happened to load. */
+  useEffect(loadAll, [loadAll]);
 
   const { colors, space, layout, radius } = useTheme();
   /* The bar floats over this screen and gets out of the way while it is read

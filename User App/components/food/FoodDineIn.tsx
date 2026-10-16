@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { SegmentedControl, Text } from '@/components/ui';
@@ -60,11 +60,15 @@ export function FoodDineIn() {
 function DineInRestaurants({ onOpen }: { onOpen: (id: string) => void }) {
   const { space, layout } = useTheme();
   const { onScroll: barScroll, height: barHeight } = useBottomBar();
-  const { kitchensFor, kitchenOpen, loading, error, refetch } = useFoodCatalogue();
+  const { kitchensFor, kitchenOpen, loading, loadingMore, hasMore, loadAll, error, refetch } = useFoodCatalogue();
+  /* Table-booking kitchens can be on any page of the feed, so all of them. */
+  useEffect(loadAll, [loadAll]);
 
   const kitchens = useMemo(() => kitchensFor().filter(takesTableBookings), [kitchensFor]);
 
-  if (loading && kitchens.length === 0) return <FoodFeedSkeleton />;
+  /* Still a wait while pages are coming in: "nobody takes bookings" said
+     with the answer on page three is the wrong sentence. */
+  if ((loading || loadingMore || (hasMore && !error)) && kitchens.length === 0) return <FoodFeedSkeleton />;
 
   if (kitchens.length === 0) {
     return (

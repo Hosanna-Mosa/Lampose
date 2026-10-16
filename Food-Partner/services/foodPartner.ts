@@ -16,7 +16,7 @@
    With EXPO_PUBLIC_API_URL unset, `api()` throws a named error saying exactly
    that, which is the honest failure rather than a convincing one.
    ══════════════════════════════════════════════════════════════════════════ */
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import { uploadApplicationImages, type UploadProgress } from "./uploads";
 import type { MenuItem, OnboardingData } from "@/store/partnerStore";
 
@@ -558,6 +558,51 @@ export const updateProduct = async (
     body,
   });
   return res.data;
+};
+
+/* ── The menu sheet ──────────────────────────────────────────────────────── */
+
+export type SheetSummary = { created: number; updated: number; unchanged: number };
+export type SheetRowProblem = { row: number | null; problems: { field: string; message: string }[] };
+export type SheetPlanEntry = { row: number; kind: "create" | "update" | "unchanged" };
+export type SheetResult =
+  | { ok: true; summary: SheetSummary; plan: SheetPlanEntry[]; failed: { row: number; message: string }[] }
+  | { ok: false; message: string; rows: SheetRowProblem[] };
+
+/**
+ * Sends the rows read from an uploaded sheet. `dryRun` checks every row and
+ * answers what WOULD happen, writing nothing — the preview before "Apply".
+ *
+ * A sheet with any bad row comes back as `ok: false` with every row's
+ * problems, and nothing on the menu has changed; any other failure throws.
+ */
+export const uploadMenuSheet = async (
+  token: string,
+  rows: Record<string, unknown>[],
+  dryRun: boolean,
+): Promise<SheetResult> => {
+  try {
+    const res = await api<Envelope<SheetSummary & { plan?: SheetPlanEntry[]; failed?: { row: number; message: string }[] }>>(
+      `${BASE}/me/products/bulk`,
+      /* A full apply saves up to 500 dishes one by one; the default 15s is a
+         phone giving up on a sheet the server is still writing. */
+      { method: "POST", token, body: { rows, dryRun }, timeoutMs: dryRun ? 30000 : 120000 },
+    );
+    const data = res.data ?? { created: 0, updated: 0, unchanged: 0 };
+    return {
+      ok: true,
+      summary: { created: data.created ?? 0, updated: data.updated ?? 0, unchanged: data.unchanged ?? 0 },
+      /* Only a dry run answers this: which sheet rows are new dishes. */
+      plan: data.plan ?? [],
+      failed: data.failed ?? [],
+    };
+  } catch (err) {
+    const payload = err instanceof ApiError ? (err.payload as { code?: string; rows?: SheetRowProblem[] }) : null;
+    if (payload?.code === "SHEET_INVALID" && Array.isArray(payload.rows)) {
+      return { ok: false, message: (err as Error).message, rows: payload.rows };
+    }
+    throw err;
+  }
 };
 
 export const deleteProduct = (token: string, productId: string) =>
