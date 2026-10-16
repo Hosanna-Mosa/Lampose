@@ -245,6 +245,9 @@ const updateFees = async (changes, req) => {
   });
 
   await refresh();
+  /* Every cached listing prints the fee (`visitToken`), from the table just
+     re-read above. */
+  await require('../listings/listing.cache').onVisitFeesChanged().catch(() => {});
   return describe();
 };
 

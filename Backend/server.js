@@ -30,6 +30,7 @@ const {
 const { notifyExpired } = require('./src/modules/notifications/stayRequest.notifier');
 const { logSmsStatus } = require('./src/infrastructure/sms/sms');
 const { attachRealtime, realtimeProblem } = require('./src/infrastructure/realtime/realtime');
+const readCache = require('./src/infrastructure/cache/cache');
 const {
   sweepStalledDispatch, reconcileDeliveries, stopAllDispatch,
 } = require('./src/modules/drivers/foodDispatch.service');
@@ -208,6 +209,9 @@ const banner = () => {
      a banner line of its own so nobody debugs "offers are slow" from scratch. */
   const socketProblem = realtimeProblem();
   console.log(`   realtime      ${socketProblem ? `OFF — ${socketProblem} (dispatch falls back to polling)` : 'on (socket.io, same port)'}`);
+  /* The Redis read cache in front of the public stay and food feeds. Off or
+     unreachable means those reads go to Mongo, exactly as without it. */
+  console.log(`   read cache    ${readCache.describe()}`);
 
   console.log('\n🛣️  API v1  — onboard.lampose.com, admin console');
   map.v1.forEach(({ path, description }) => {
@@ -273,6 +277,10 @@ const startServer = async () => {
      unreachable can only report the wrong fault. */
   await connectDB();
   await initStore();
+
+  /* Never blocks and never throws: Redis connects in the background, and
+     until it does (or if it never does) every read goes to Mongo. */
+  readCache.init();
 
   /* The visit-fee table, into its in-memory cache. Never throws: without a
      database the defaults in visitFees.service.js are served, and the first
@@ -452,6 +460,7 @@ const startServer = async () => {
        the next boot. */
     stopAllDispatch();
     server.close(async () => {
+      await readCache.close();
       await closeConnections();
       clearTimeout(forceExit);
       console.log('[server] closed cleanly.');

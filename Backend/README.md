@@ -665,6 +665,9 @@ boot and in the response:
   answer `503 AUTH_NOT_CONFIGURED`. No forgeable token is ever issued.
 - **Playwright not installed** — only `POST /api/v2/scraper/start` answers
   503\. It is required lazily for exactly this reason.
+- **Redis unreachable (read cache on)** — the cached reads go to MongoDB, as
+  if the cache were off. Nothing waits on it; it reconnects in the background.
+  See [Redis read cache](#redis-read-cache).
 
 ## Scripts
 
@@ -771,6 +774,7 @@ falls back to something committed. The groups:
 | Cloudinary (v1 images) | `CLOUDINARY_CLOUD_NAME` `CLOUDINARY_API_KEY` `CLOUDINARY_API_SECRET` | upload answers 503 |
 | v1 admin | `V1_ADMIN_SECRET_KEY` `ADMIN_PASSWORD` | registration refused / seed refuses |
 | Verification | `VERIFICATION_TEAM_NUMBERS` `PRODUCTION_WEBSITE_URL` | **empty team list = owner's YES auto-verifies with no second pair of eyes** |
+| Read cache | `CACHE_ENABLED` `REDIS_URL` (`REDIS_USERNAME` `REDIS_PASSWORD` `CACHE_TTL_*` `CACHE_COMMAND_TIMEOUT_MS`) | cache off; every read goes to MongoDB |
 
 Three sharp edges, all commented in `.env.example`:
 
@@ -781,6 +785,81 @@ Three sharp edges, all commented in `.env.example`:
   app posts base64 images in the JSON body.
 - `SEED_DEFAULT_USERS` — keep false whenever `MONGO_URI` points at the real
   cluster; the demo credentials are public knowledge.
+
+## Redis read cache
+
+An optional Redis cache in front of the public read endpoints the User App
+calls the most. **Off by default.** It turns on only when `CACHE_ENABLED=true`
+and `REDIS_URL` is set, and the boot banner says which (`read cache` line).
+Off, or with Redis unreachable, every read goes to MongoDB exactly as it does
+without the cache. No endpoint, response shape, status code, sort or page
+changes, and no `Cache-Control` header is sent: this is a server-side cache
+only, so the app can never show something staler than the TTLs below.
+
+| Endpoint | Key | TTL (s) | Cached | Recomputed on every request |
+| --- | --- | --- | --- | --- |
+| `GET /api/v2/listings` | `stay:list:v1:g<gen>:<hash>` | 120 | formatted listings after the query, owner names, ratings and city/area filters | beds, the owner's pause switch, hiding/ranking/paging that depend on them, `joinWindow` |
+| `GET /api/v2/listings/:id` | `stay:listing:v1:<id>` | 600 (404: 30) | the formatted listing and its status | beds, pause, `removed`, `joinWindow` |
+| `GET /api/v2/food-partners/restaurants` | `food:list:v1:g<gen>:<hash>` | 120 | the lean documents of one page (with `openNow`: the scanned set) | every row (`isCurrentlyOpen`), the open-now filter |
+| `GET /api/v2/food-partners/restaurants/:id` | `food:restaurant:v1:<id>` + `food:menu:v1:<id>` | 600 (404: 30) / 300 | the detail document; the available dishes | the detail header and menu groups |
+
+TTLs get ±10% jitter and are set with `CACHE_TTL_DETAIL`, `CACHE_TTL_LIST`,
+`CACHE_TTL_MENU` and `CACHE_TTL_NOT_FOUND`. The hash is taken over normalised
+query params, so equivalent requests share a key.
+
+**What is never cached:** any request with `lat`/`lng`, since rounding the fix
+would change the reply. Also never cached: bed availability, dine-in slots,
+quotes, prices at checkout, orders, payments, bookings, anything behind a sign-in,
+`/listings/meta`, `/listings/:id/reviews` and `/products/:id`. Booking and
+order validation still read MongoDB directly. Only what the public reply
+already contains is stored. The formatters strip owner phones, street
+addresses, payout and licence data first.
+
+**Invalidation** is attached to the Mongoose schemas
+(`src/infrastructure/cache/watchWrites.js`) rather than to each write site. It
+runs after the write is acknowledged. There are no transactions here, so that
+means after commit.
+- `properties`: every write bumps the feed generation and deletes that listing.
+- `app_partners`: only a change to the name or the verified number does.
+- `partner_reviews`: every write bumps the feed generation.
+- Visit-fee changes in the console: clear both stay namespaces.
+- `food_restaurants`: only writes to fields a diner can see (or to
+  `isActive`/`verificationStatus`) clear the kitchen and the feed. Sign-ins,
+  push tokens and payouts do not.
+- `food_products`: every write clears that kitchen's menu.
+
+A read that started before a write is never stored after it. Every reconnect
+starts all namespaces over.
+
+Writes that bypass Mongoose (`bulkWrite`, `Model.collection`, the raw driver
+used by a few one-off scripts) are not seen. They show up within one TTL.
+Scripts never open a Redis connection.
+
+Concurrent misses for one key share one load. That is in-process
+de-duplication, enough for the single process this backend runs as. A second
+instance would want a `SET NX PX` lock in `cache.js`.
+
+`X-Cache: HIT | MISS | BYPASS` is added outside production. A per-minute
+`🧊 [cache]` log line gives hit/miss/error counts.
+
+**Recommended Redis settings**
+
+- `maxmemory` sized for the working set (a few hundred MB is plenty), with
+  `maxmemory-policy allkeys-lru`. Every key here has a TTL and can be rebuilt.
+  Generation tokens are random, so an evicted one cannot bring old entries
+  back.
+- **Private network only.** Bind to the VPC/private interface, never a
+  public IP. Firewall port 6379 to the API host.
+- **Authentication:** `requirepass` or an ACL user limited to these key
+  prefixes (`~stay:* ~food:*`, `+get +set +del +scan +info +ping +quit` — `info` is the client's ready check). Pass the
+  credentials in `REDIS_URL` (`redis://user:pass@host:6379`) or in
+  `REDIS_USERNAME`/`REDIS_PASSWORD`, never in source.
+- **TLS** for anything that leaves the host: use a `rediss://` URL.
+- No persistence needed (`save ""`, `appendonly no`). An empty cache after a
+  restart is a few seconds of misses.
+
+`npm test -- tests/cache.test.js tests/readCache.test.js` asserts all of it,
+including identical replies with the cache on, off and with Redis unreachable.
 
 ## Local development against real WhatsApp
 

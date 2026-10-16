@@ -27,6 +27,7 @@
                           utils/listingFormatter
    ══════════════════════════════════════════════════════════════════════════ */
 const mongoose = require('mongoose');
+const { watchWrites } = require('../../infrastructure/cache/watchWrites');
 const { CATEGORIES } = require('../../shared/constants/categories');
 
 /*
@@ -271,5 +272,10 @@ propertySchema.index({ category: 1, createdAt: -1 });
    query is written: the index is what makes `$near`/`$geoIntersects` possible
    at all, and adding it to a collection that has grown is the slow path. */
 propertySchema.index({ location: '2dsphere' }, { sparse: true });
+
+/* Clears the public listing cache after every committed write — see
+   listings/listing.cache.js. Required lazily: that module reaches back into
+   the listing code, which requires this one. */
+watchWrites(propertySchema, (change) => require('../listings/listing.cache').onPropertyWrite(change));
 
 module.exports = mongoose.models.Property || mongoose.model('Property', propertySchema);

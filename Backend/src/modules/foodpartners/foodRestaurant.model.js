@@ -105,6 +105,7 @@ const crypto = require('crypto');
 
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
+const { watchWrites } = require('../../infrastructure/cache/watchWrites');
 
 const { deletionField } = require('../accountDeletion/accountDeletion.schema');
 const config = require('../../config/env');
@@ -1049,6 +1050,11 @@ foodRestaurantSchema.set('toJSON', {
     return ret;
   },
 });
+
+/* Clears the public food cache after a committed write to anything a diner
+   can see — see foodDiscovery.cache.js. Lazy, for the same cycle reason as
+   property.model.js. */
+watchWrites(foodRestaurantSchema, (change) => require('./foodDiscovery.cache').onRestaurantWrite(change));
 
 const FoodRestaurant = mongoose.models.FoodRestaurant
   || mongoose.model('FoodRestaurant', foodRestaurantSchema, 'food_restaurants');
