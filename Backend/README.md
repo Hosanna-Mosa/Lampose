@@ -213,6 +213,8 @@ the other is the conversion to get right, and getting it wrong does not throw.
 /api/v1/whatsapp            Twilio inbound webhook
 /api/v1/permissions         employee edit/delete permission requests
 /api/v1/admin/food-restaurants  the restaurant approval queue and its decisions
+  …/:restaurantId/menu      staff write a kitchen's menu (single + /bulk sheet, /uploads/images)
+                            through the app's own handlers; food.menu.manage, audited
 /api/v1/admin/drivers       the rider queue: per-DOCUMENT verdicts, approvals, suspensions
 /api/v1/admin/support       the support queue: every thread from all three apps
 

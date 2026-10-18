@@ -27,6 +27,15 @@ import type {
   FoodRestaurantRow,
   FoodVerificationStatus,
 } from '../types';
+import type {
+  MenuItem,
+  MenuItemInput,
+  MenuList,
+  MenuService,
+  SheetResult,
+  SheetRow,
+  UploadedImage,
+} from './restaurantAdminService';
 
 /* The versioned path, spelled once. `axiosInstance` supplies the `/api` base. */
 const BASE = '/v1/admin/food-restaurants';
@@ -203,6 +212,52 @@ export const foodAdminService = {
   ): Promise<ApiResponse<{ credentials?: SendOutcome } | null>> {
     const res = await api.post<any>(`${BASE}/${restaurantId}/credentials`);
     return res.success ? { ...res, data: res.data?.data ?? null } : { ...res, data: null };
+  },
+
+  /**
+   * One restaurant's menu, written by staff on its behalf — the same calls
+   * the owner's console makes (`MenuService`), aimed at the kitchen in the
+   * path. The server runs the app's own handlers behind them.
+   */
+  menuFor(restaurantId: string): MenuService {
+    const menuBase = `${BASE}/${encodeURIComponent(restaurantId)}/menu`;
+    return {
+      async menu(): Promise<ApiResponse<MenuList>> {
+        const res = await api.get<{ data: MenuItem[]; unavailable: number }>(menuBase);
+        return res.success
+          ? { ...res, data: { items: res.data?.data ?? [], unavailable: res.data?.unavailable ?? 0 } }
+          : { ...res, data: { items: [], unavailable: 0 } };
+      },
+      async createMenuItem(input: MenuItemInput): Promise<ApiResponse<MenuItem | null>> {
+        const res = await api.post<{ data: MenuItem }>(menuBase, input);
+        return res.success ? { ...res, data: res.data?.data ?? null } : { ...res, data: null };
+      },
+      async updateMenuItem(productId: string, input: MenuItemInput): Promise<ApiResponse<MenuItem | null>> {
+        const res = await api.patch<{ data: MenuItem }>(`${menuBase}/${productId}`, input);
+        return res.success ? { ...res, data: res.data?.data ?? null } : { ...res, data: null };
+      },
+      async setMenuItemAvailability(productId: string, isAvailable: boolean): Promise<ApiResponse<MenuItem | null>> {
+        const res = await api.patch<{ data: MenuItem }>(`${menuBase}/${productId}/availability`, { isAvailable });
+        return res.success ? { ...res, data: res.data?.data ?? null } : { ...res, data: null };
+      },
+      async deleteMenuItem(productId: string): Promise<ApiResponse<unknown>> {
+        return api.delete(`${menuBase}/${productId}`);
+      },
+      async uploadImages(files: File[]): Promise<ApiResponse<UploadedImage[]>> {
+        const form = new FormData();
+        form.append('kind', 'product');
+        files.forEach((file) => form.append('images', file));
+        const res = await api.upload<{ data: UploadedImage[] }>(`${menuBase}/uploads/images`, form, undefined, {
+          timeout: 120_000,
+        });
+        return res.success ? { ...res, data: res.data?.data ?? [] } : { ...res, data: [] };
+      },
+      async bulk(rows: SheetRow[], dryRun: boolean): Promise<ApiResponse<SheetResult | null>> {
+        /* A whole sheet of creates can outlast the default fifteen seconds. */
+        const res = await api.post<{ data: SheetResult }>(`${menuBase}/bulk`, { rows, dryRun }, { timeout: 120_000 });
+        return res.success ? { ...res, data: res.data?.data ?? null } : { ...res, data: null };
+      },
+    };
   },
 
   /** Pause or resume an already-approved listing without un-approving it. */

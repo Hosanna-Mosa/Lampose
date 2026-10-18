@@ -84,6 +84,13 @@ const CAPABILITIES = Object.freeze({
   /* ── Queues ──────────────────────────────────────────────────────────── */
   'food.decide': { roles: ['Super Admin', 'Admin', 'Food Admin'], label: 'approve or refuse a restaurant' },
   'food.staff_access.read': { roles: ADMINS, label: 'read the log of staff sign-ins to restaurant accounts' },
+  /* Adding, editing and removing a restaurant's dishes on its behalf — one by
+     one or from the menu sheet. The same operators who approve the kitchen,
+     because typing in a new kitchen's menu is part of putting it live. */
+  'food.menu.manage': {
+    roles: ['Super Admin', 'Admin', 'Food Admin'],
+    label: 'add, edit or remove dishes on a restaurant’s menu',
+  },
   'riders.decide': { roles: ['Super Admin', 'Admin', 'Food Admin'], label: 'approve, refuse or suspend a rider' },
   'support.answer': { roles: ['Super Admin', 'Admin', 'Support'], label: 'answer support tickets' },
   'messaging.send': { roles: ADMINS, label: 'send WhatsApp messages from the console' },
