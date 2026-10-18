@@ -294,6 +294,47 @@ export interface MenuItemInput {
   galleryImages?: { url: string; publicId?: string }[];
 }
 
+/** What `POST …/uploads/images` hands back, per file. */
+export interface UploadedImage {
+  url: string;
+  publicId: string;
+}
+
+/** One menu-sheet row as `…/bulk` takes it — see `lib/menuWorkbook.ts`. */
+export type SheetRow = Record<string, unknown> & { row: number; productId?: string };
+
+/** One row's refusal. `row` is null for a sheet-wide one (the menu ceiling). */
+export interface SheetRowProblem {
+  row: number | null;
+  problems: { field: string; message: string }[];
+}
+
+/** A dry run's or an applied sheet's answer. */
+export interface SheetResult {
+  created: number;
+  updated: number;
+  unchanged: number;
+  /** Dry run only: which sheet rows are new dishes, edits, or untouched. */
+  plan?: { row: number; kind: 'create' | 'update' | 'unchanged' }[];
+  /** Applied only: rows that passed the check and still did not save. */
+  failed?: { row: number; message: string }[];
+}
+
+/**
+ * The menu calls a menu screen makes, whoever is making them. The owner's
+ * console is `restaurantAdminService` itself; staff get one per restaurant
+ * from `foodAdminService.menuFor(id)`, which adds photos and the sheet.
+ */
+export interface MenuService {
+  menu(): Promise<ApiResponse<MenuList>>;
+  createMenuItem(input: MenuItemInput): Promise<ApiResponse<MenuItem | null>>;
+  updateMenuItem(productId: string, input: MenuItemInput): Promise<ApiResponse<MenuItem | null>>;
+  setMenuItemAvailability(productId: string, isAvailable: boolean): Promise<ApiResponse<MenuItem | null>>;
+  deleteMenuItem(productId: string): Promise<ApiResponse<unknown>>;
+  uploadImages?(files: File[]): Promise<ApiResponse<UploadedImage[]>>;
+  bulk?(rows: SheetRow[], dryRun: boolean): Promise<ApiResponse<SheetResult | null>>;
+}
+
 /* ── Analytics ────────────────────────────────────────────────────────── */
 
 /** One day in the window. Every day is present, including the empty ones —

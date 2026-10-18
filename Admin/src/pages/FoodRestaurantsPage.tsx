@@ -18,6 +18,7 @@ import { Section } from '../components/common/molecules/Section';
 import React, { useMemo, useState } from 'react';
 import {
   Ban,
+  BookOpenText,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -56,6 +57,7 @@ import { Toast } from '../components/common/organisms/Toast';
 import type { ToastState } from '../components/common/organisms/Toast';
 import { cx, filterSelectClass } from '../components/common/utils';
 import { foodAdminService } from '../api/services/foodAdminService';
+import { RestaurantMenuPage } from './restaurant/RestaurantMenuPage';
 import type { FoodQueueFacetValue, FoodQueueFilters } from '../api/services/foodAdminService';
 import { useHeaderSearch } from '../context/headerSearch';
 import { useAuth } from '../context/AuthContext';
@@ -189,6 +191,9 @@ const STATUS_LABEL: Record<FoodVerificationStatus, string> = {
  *  would 403 — `foodAdmin.routes.js` is the real guard. */
 const DECIDING_ROLES = new Set(['Super Admin', 'Admin', 'Food Admin']);
 
+/** Roles holding `food.menu.manage` — the same mirror, for the menu button. */
+const MENU_ROLES = new Set(['Super Admin', 'Admin', 'Food Admin']);
+
 const dash = (value: unknown): string => {
   if (value === null || value === undefined || value === '') return '—';
   return String(value);
@@ -297,6 +302,11 @@ function DrawerMenu({ menu }: { menu: { category: string; items: FoodProductRow[
 export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search }) => {
   const { user } = useAuth();
   const canDecide = DECIDING_ROLES.has(user?.role ?? '');
+  const canManageMenu = MENU_ROLES.has(user?.role ?? '');
+
+  /* The restaurant whose menu staff are working on, in place of the list. */
+  const [menuFor, setMenuFor] = useState<{ id: string; name: string } | null>(null);
+  const menuService = useMemo(() => (menuFor ? foodAdminService.menuFor(menuFor.id) : null), [menuFor]);
 
   const [status, setStatus] = useState<StatusFilter>('pending');
   const [listing, setListing] = useState<ListingFilter>('all');
@@ -483,6 +493,22 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
         : [],
     [counts]
   );
+
+  if (menuFor && menuService) {
+    return (
+      <RestaurantMenuPage
+        search={search}
+        onClearSearch={headerSearch.clear}
+        service={menuService}
+        eyebrow={`${menuFor.name} · ${menuFor.id}`}
+        restaurantName={menuFor.name}
+        onBack={() => {
+          setMenuFor(null);
+          queue.reload();
+        }}
+      />
+    );
+  }
 
   return (
     <Box className="space-y-4">
@@ -675,6 +701,15 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
                           disabled={busy}
                         >
                           {row.isActive ? 'Pause' : 'Resume'}
+                        </Button>
+                      )}
+                      {canManageMenu && (
+                        <Button
+                          variant="ghost"
+                          icon={BookOpenText}
+                          onClick={() => setMenuFor({ id: row.restaurantId, name: row.restaurantName })}
+                        >
+                          Menu
                         </Button>
                       )}
                       <Button variant="ghost" icon={ChevronRight} onClick={() => setOpenId(row.restaurantId)}>
@@ -918,6 +953,21 @@ export const FoodRestaurantsPage: React.FC<FoodRestaurantsPageProps> = ({ search
 
             <Section title={`Menu — ${open.menuItemCount} item${open.menuItemCount === 1 ? '' : 's'}`}>
               <DrawerMenu menu={open.menu} />
+              {canManageMenu && (
+                <Box className="pt-3">
+                  <Button
+                    variant="secondary"
+                    icon={BookOpenText}
+                    onClick={() => {
+                      const { restaurantId, restaurantName } = open.restaurant;
+                      closeDrawer();
+                      setMenuFor({ id: restaurantId, name: restaurantName });
+                    }}
+                  >
+                    Add or edit dishes
+                  </Button>
+                </Box>
+              )}
             </Section>
 
             <Section title="Contract">

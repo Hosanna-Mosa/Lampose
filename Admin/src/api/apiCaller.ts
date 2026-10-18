@@ -53,6 +53,7 @@ function buildErrorResponse<T>(error: unknown, defaultMessage: string): ApiRespo
     status: failure.status || 500,
     message: failure.message || defaultMessage,
     code: codeOf(failure),
+    errorBody: failure.data,
     success: false,
     timestamp: new Date().toISOString(),
   };

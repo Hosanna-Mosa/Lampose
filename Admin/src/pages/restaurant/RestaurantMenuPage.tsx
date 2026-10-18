@@ -37,9 +37,11 @@
    a second answer to the same question, and the two would drift the first
    time one of them changed.
    ══════════════════════════════════════════════════════════════════════════ */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  ArrowLeft,
+  FileSpreadsheet,
   BookOpenText,
   Circle,
   Flame,
@@ -48,6 +50,7 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  Upload,
   XCircle,
 } from 'lucide-react';
 import { Badge } from '../../components/common/atoms/Badge';
@@ -59,6 +62,7 @@ import { Image } from '../../components/common/atoms/Image';
 import { Inline } from '../../components/common/atoms/Inline';
 import { Input } from '../../components/common/atoms/Input';
 import { Option } from '../../components/common/atoms/Option';
+import { PlainInput } from '../../components/common/atoms/PlainInput';
 import { PlainTd, PlainTr, TableBody, TableHead } from '../../components/common/atoms/PlainTable';
 import { Select } from '../../components/common/atoms/Select';
 import { Strong } from '../../components/common/atoms/Strong';
@@ -84,8 +88,11 @@ import type {
   IsVeg,
   MenuItem,
   MenuItemInput,
+  MenuService,
   SpiceLevel,
+  UploadedImage,
 } from '../../api/services/restaurantAdminService';
+import { MenuSheetModal } from './MenuSheetModal';
 import { useFetch } from '../../lib/useFetch';
 import { PAGE_SIZES, filterMenu, hasActiveFilters, useMenuView } from '../../lib/menuFilter';
 import type { StockFilter } from '../../lib/menuFilter';
@@ -95,7 +102,29 @@ interface RestaurantMenuPageProps {
   search: string;
   /** Empties the header search, so "Clear" undoes everything narrowing the list. */
   onClearSearch?: () => void;
+  /**
+   * Whose menu, through which door. Omitted = the owner's own console, with
+   * exactly the calls it always made. Staff pass `foodAdminService.menuFor(id)`,
+   * which also offers photos and the menu sheet — each turned on here only
+   * when the service has it.
+   */
+  service?: MenuService;
+  eyebrow?: string;
+  /** For the downloaded sheet's file name. */
+  restaurantName?: string;
+  /** Staff only: back to the restaurant list. */
+  onBack?: () => void;
 }
+
+/* The owner's console, spelled as the five calls it has always made — no
+   photos, no sheet, so that page is unchanged by the staff door. */
+const OWNER_MENU: MenuService = {
+  menu: () => restaurantAdminService.menu(),
+  createMenuItem: (input) => restaurantAdminService.createMenuItem(input),
+  updateMenuItem: (id, input) => restaurantAdminService.updateMenuItem(id, input),
+  setMenuItemAvailability: (id, next) => restaurantAdminService.setMenuItemAvailability(id, next),
+  deleteMenuItem: (id) => restaurantAdminService.deleteMenuItem(id),
+};
 
 const VEG_LOOK: Record<IsVeg, { label: string; tone: 'good' | 'crit' | 'warn' }> = {
   veg: { label: 'Veg', tone: 'good' },
@@ -179,9 +208,23 @@ const payloadFrom = (form: FormState): MenuItemInput => ({
   isAvailable: form.isAvailable,
 });
 
-export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search, onClearSearch }) => {
-  const menu = useFetch(() => restaurantAdminService.menu(), []);
+export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({
+  search,
+  onClearSearch,
+  service = OWNER_MENU,
+  eyebrow = 'My restaurant',
+  restaurantName,
+  onBack,
+}) => {
+  const menu = useFetch(() => service.menu(), [service]);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const canPhoto = Boolean(service.uploadImages);
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  /* The dish photo in the form: `undefined` = untouched, `null` = removed. */
+  const [photo, setPhoto] = useState<UploadedImage | null | undefined>(undefined);
+  const [uploading, setUploading] = useState(false);
+  const photoInput = useRef<HTMLInputElement>(null);
 
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [creating, setCreating] = useState(false);
@@ -243,6 +286,7 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search, 
 
   const openCreate = () => {
     setForm(EMPTY_FORM);
+    setPhoto(undefined);
     setFormError(null);
     setEditing(null);
     setCreating(true);
@@ -250,6 +294,7 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search, 
 
   const openEdit = (item: MenuItem) => {
     setForm(formFrom(item));
+    setPhoto(undefined);
     setFormError(null);
     setCreating(false);
     setEditing(item);
@@ -268,9 +313,10 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search, 
     setSaving(true);
     setFormError(null);
     const payload = payloadFrom(form);
+    if (canPhoto && photo !== undefined) payload.productImage = photo;
     const res = editing
-      ? await restaurantAdminService.updateMenuItem(editing.productId, payload)
-      : await restaurantAdminService.createMenuItem(payload);
+      ? await service.updateMenuItem(editing.productId, payload)
+      : await service.createMenuItem(payload);
     setSaving(false);
 
     if (res.success) {
@@ -291,7 +337,7 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search, 
 
   const flipAvailability = async (item: MenuItem, next: boolean) => {
     setFlipping(item.productId);
-    const res = await restaurantAdminService.setMenuItemAvailability(item.productId, next);
+    const res = await service.setMenuItemAvailability(item.productId, next);
     setFlipping(null);
     if (res.success) {
       setToast({
@@ -307,7 +353,7 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search, 
   const confirmDelete = async () => {
     if (!pendingDelete) return;
     setDeleting(true);
-    const res = await restaurantAdminService.deleteMenuItem(pendingDelete.productId);
+    const res = await service.deleteMenuItem(pendingDelete.productId);
     setDeleting(false);
     if (res.success) {
       setToast({ tone: 'good', message: `${pendingDelete.productName} removed from the menu.` });
@@ -318,12 +364,26 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search, 
     }
   };
 
+  const pickPhoto = async (file: File | undefined) => {
+    if (!file || !service.uploadImages) return;
+    setUploading(true);
+    setFormError(null);
+    const res = await service.uploadImages([file]);
+    setUploading(false);
+    const uploaded = res.success ? res.data[0] : undefined;
+    if (uploaded?.url) setPhoto({ url: uploaded.url, publicId: uploaded.publicId });
+    else setFormError(res.message || 'That photo could not be uploaded.');
+  };
+
+  /* What the form shows: the new pick, else the dish's own, unless removed. */
+  const shownPhoto = photo === undefined ? editing?.productImage?.url || '' : photo?.url || '';
+
   const formOpen = creating || Boolean(editing);
 
   return (
     <Box className="space-y-5">
       <PageHeader
-        eyebrow="My restaurant"
+        eyebrow={eyebrow}
         title="Menu"
         description={
           items.length
@@ -334,6 +394,11 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search, 
         }
         actions={
           <>
+            {onBack && (
+              <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={onBack}>
+                Back
+              </Button>
+            )}
             <Button
               size="sm"
               variant="secondary"
@@ -343,6 +408,11 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search, 
             >
               Refresh
             </Button>
+            {service.bulk && (
+              <Button size="sm" variant="secondary" icon={FileSpreadsheet} onClick={() => setSheetOpen(true)}>
+                Bulk upload
+              </Button>
+            )}
             <Button size="sm" variant="primary" icon={Plus} onClick={openCreate}>
               Add a dish
             </Button>
@@ -574,7 +644,7 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search, 
             <Button variant="secondary" onClick={closeForm}>
               Cancel
             </Button>
-            <Button variant="primary" loading={saving} onClick={save}>
+            <Button variant="primary" loading={saving} disabled={uploading} onClick={save}>
               {editing ? 'Save changes' : 'Add to menu'}
             </Button>
           </>
@@ -702,7 +772,51 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search, 
             </Text>
           </Box>
 
-          {editing?.productImage?.url && (
+          {canPhoto && (
+            <Field label="Photo" hint="What diners see on the dish card. JPEG or PNG, up to 10 MB.">
+              <Box className="flex items-center gap-3">
+                {shownPhoto ? (
+                  <Image
+                    src={shownPhoto}
+                    alt=""
+                    className="size-14 rounded-control object-cover border border-line"
+                  />
+                ) : (
+                  <Inline className="grid place-items-center size-14 rounded-control bg-surface-inset text-ink-3">
+                    <ImageOff className="size-5" strokeWidth={1.75} />
+                  </Inline>
+                )}
+                <PlainInput
+                  ref={photoInput}
+                  type="file"
+                  accept="image/*"
+                  tabIndex={-1}
+                  aria-hidden
+                  className="hidden"
+                  onChange={(e) => {
+                    void pickPhoto(e.target.files?.[0]);
+                    e.target.value = '';
+                  }}
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={Upload}
+                  loading={uploading}
+                  onClick={() => photoInput.current?.click()}
+                >
+                  {shownPhoto ? 'Change photo' : 'Upload photo'}
+                </Button>
+                {shownPhoto && (
+                  <Button size="sm" variant="ghost" onClick={() => setPhoto(null)} disabled={uploading}>
+                    Remove
+                  </Button>
+                )}
+              </Box>
+            </Field>
+          )}
+
+          {!canPhoto && editing?.productImage?.url && (
             <Box className="flex items-center gap-3 pt-1">
               <Image
                 src={editing.productImage.url}
@@ -742,6 +856,20 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({ search, 
           </Text>
         </Box>
       </Modal>
+
+      {service.bulk && (
+        <MenuSheetModal
+          open={sheetOpen}
+          onClose={() => setSheetOpen(false)}
+          service={service}
+          items={items}
+          restaurantName={restaurantName}
+          onApplied={(message) => {
+            setToast({ tone: 'good', message });
+            menu.reload();
+          }}
+        />
+      )}
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
     </Box>

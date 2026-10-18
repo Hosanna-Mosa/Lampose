@@ -66,6 +66,9 @@ const AUDIT_ACTIONS = [
   'cancellation_policy.changed',
   /* The assisted-visit fee table (visitFees.service.js). */
   'visit_fees.changed',
+  /* A restaurant's menu written from the console on the kitchen's behalf
+     (foodMenuAdmin.routes.js) — one dish, or a whole sheet. */
+  'food_menu.changed',
   /* Accounts — who may open the console, and with what power. */
   'admin.bootstrapped',
   'admin.created',

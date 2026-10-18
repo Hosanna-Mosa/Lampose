@@ -20,6 +20,12 @@ export interface ApiResponse<T = any> {
    * caller that writes something must read), and is absent on success.
    */
   code?: string;
+  /**
+   * The server's whole refusal body, on failure only. For the few refusals
+   * that carry more than a sentence — the menu sheet's per-row problems — so
+   * a caller does not need a second error path to read them.
+   */
+  errorBody?: unknown;
 }
 
 /**

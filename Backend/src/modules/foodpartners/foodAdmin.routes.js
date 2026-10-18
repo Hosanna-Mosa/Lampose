@@ -55,4 +55,8 @@ router.patch('/:restaurantId/active', requireFoodApprover, setActive);
    behind the same capability rather than a wider one. */
 router.post('/:restaurantId/credentials', requireFoodApprover, resendCredentials);
 
+/* The restaurant's menu, written on its behalf — single dishes and the menu
+   sheet, through the app's own handlers. See `foodMenuAdmin.routes.js`. */
+router.use('/:restaurantId/menu', require('./foodMenuAdmin.routes'));
+
 module.exports = router;
