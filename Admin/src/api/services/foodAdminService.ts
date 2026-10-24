@@ -254,7 +254,7 @@ export const foodAdminService = {
       },
       async bulk(rows: SheetRow[], dryRun: boolean): Promise<ApiResponse<SheetResult | null>> {
         /* A whole sheet of creates can outlast the default fifteen seconds. */
-        const res = await api.post<{ data: SheetResult }>(`${menuBase}/bulk`, { rows, dryRun }, { timeout: 120_000 });
+        const res = await api.post<{ data: SheetResult }>(`${menuBase}/bulk`, { rows, dryRun, photoOptional: true }, { timeout: 120_000 });
         return res.success ? { ...res, data: res.data?.data ?? null } : { ...res, data: null };
       },
     };

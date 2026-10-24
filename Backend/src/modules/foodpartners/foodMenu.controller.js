@@ -1032,6 +1032,9 @@ const bulkUpsertProducts = async (req, res, next) => {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const rows = Array.isArray(body.rows) ? body.rows : null;
     const dryRun = readBoolean(body.dryRun) === true;
+    /* The console may add dishes with no photograph (the apps draw the Lampose
+       logo for them); the Food-Partner app never sends this and still asks. */
+    const photoOptional = readBoolean(body.photoOptional) === true;
 
     if (!rows || rows.length === 0) {
       return badInput(res, 'The sheet has no dishes in it.', ['rows']);
@@ -1085,7 +1088,7 @@ const bulkUpsertProducts = async (req, res, next) => {
         needs('category', 'A dish needs a section — "Starters", "Main Course", "Beverages".');
         needs('price', 'A dish needs a price.');
         needs('isVeg', `Say whether this is ${IS_VEG_VALUES.join(', ')}.`);
-        if (!dryRun && !(set.productImage && set.productImage.url) && !problems.some((p) => p.field === 'productImage')) {
+        if (!dryRun && !photoOptional && !(set.productImage && set.productImage.url) && !problems.some((p) => p.field === 'productImage')) {
           problems.push({ field: 'productImage', message: 'A new dish needs a photo.' });
         }
 

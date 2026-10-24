@@ -194,6 +194,12 @@ describe('staff menu: the sheet', () => {
     assert.equal(audit.after.created, 2);
   });
 
+  it('adds new dishes with no photo when the console says photos are optional', async () => {
+    const res = await call('POST', `${MENU('FP-STAFF001')}/bulk`, { token: approver, body: { rows, photoOptional: true } });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.data.created, 2);
+  });
+
   it('is refused to a Viewer, dry run included', async () => {
     const res = await call('POST', `${MENU('FP-STAFF001')}/bulk`, { token: viewer, body: { rows, dryRun: true } });
     assert.equal(res.status, 403);
