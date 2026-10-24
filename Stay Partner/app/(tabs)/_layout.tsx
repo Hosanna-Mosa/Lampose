@@ -19,7 +19,7 @@ import { useColors } from '@/hooks/useColors';
 import { useStayRequests } from '@/services/hooks/useStayRequests';
 
 /** The active tab's ink — glyph and label — and the tint of the glass under it. */
-const ACTIVE_TINT = '#FF5200';
+const ACTIVE_TINT = '#0E6E5C';
 
 /** The bar's top padding. The bubble's top edge is read from it too, because
  *  that is where the tab cells start. */

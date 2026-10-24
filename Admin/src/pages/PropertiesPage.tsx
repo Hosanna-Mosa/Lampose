@@ -42,13 +42,23 @@ import { ResultCount } from '../components/common/molecules/ResultCount';
 import { cx, filterBySearch, filterSelectClass } from '../components/common/utils';
 import { propertyService } from '../api/services/propertyService';
 import { useFetch } from '../lib/useFetch';
-import { PROPERTY_CATEGORIES, propertyCategoryLabel, STAY_TYPES } from '../lib/domain';
+import {
+  LONG_STAY_DURATIONS,
+  offersLongStay,
+  offersShortStay,
+  PROPERTY_CATEGORIES,
+  propertyCategoryLabel,
+  SHORT_STAY_DURATIONS,
+  STAY_TYPES,
+} from '../lib/domain';
 import { formatDate, formatDateTime, rupees } from '../lib/format';
 import type { PropertyEntity } from '../api/types';
 
 import { Thumb } from '../components/properties/atoms/Thumb';
 import { KeyValueEditor } from '../components/properties/organisms/KeyValueEditor';
 import { PhotoManager } from '../components/properties/organisms/PhotoManager';
+import { HotelDocuments } from '../components/properties/organisms/HotelDocuments';
+import type { PropertyDocument } from '../api/services/propertyService';
 import { realPhotos } from '../components/properties/utils/photos';
 import { BedAvailability } from '../components/properties/organisms/BedAvailability';
 import type { KVRow } from '../components/properties/organisms/KeyValueEditor';
@@ -79,6 +89,116 @@ const EMPTY_FORM = {
   rent: '',
   deposit: '',
   stayType: 'Long Stay',
+  dailyPrice: '',
+  shortStayDuration: SHORT_STAY_DURATIONS[0],
+  longStayDuration: LONG_STAY_DURATIONS[0],
+};
+
+type PricingKey = 'stayType' | 'rent' | 'dailyPrice' | 'deposit' | 'shortStayDuration' | 'longStayDuration';
+type PricingValues = Pick<typeof EMPTY_FORM, PricingKey>;
+
+/**
+ * What the pricing fields still need for the stay type picked, as a sentence,
+ * or null when they are complete. The app only offers a short stay with a
+ * daily price and a long stay with a monthly one, so a listing saved without
+ * the matching price has nothing to book.
+ */
+const pricingProblem = (v: PricingValues): string | null => {
+  if (offersShortStay(v.stayType) && !(Number(v.dailyPrice) > 0)) {
+    return 'Enter the daily price — a short stay cannot be booked in the app without one.';
+  }
+  if (offersLongStay(v.stayType) && !(Number(v.rent) > 0)) {
+    return 'Enter the monthly rent — a long stay cannot be booked in the app without one.';
+  }
+  return null;
+};
+
+/**
+ * The prices to save for a stay type, in the fields the listing reads.
+ *
+ *   short only  rent = daily, monthlyPrice 0, so the card reads "/day"
+ *   long only   rent = monthly, dailyPrice 0
+ *   both        rent = monthly, with the daily price beside it
+ *
+ * `monthlyPrice` wins over `rent` wherever a listing is drawn, so it is set
+ * with the rent; left at 0 on a "both" listing, the card would label the
+ * monthly figure "/day". `keepMonthly` is the edit form's existing monthly
+ * price, kept when the rent was not touched.
+ */
+const pricingPayload = (v: PricingValues, keepMonthly?: number) => {
+  const short = offersShortStay(v.stayType);
+  const long = offersLongStay(v.stayType);
+  const daily = short ? Number(v.dailyPrice) || 0 : 0;
+  const monthly = long ? Number(v.rent) || 0 : 0;
+  return {
+    stayType: v.stayType,
+    rent: long ? monthly : daily,
+    monthlyPrice: long ? (keepMonthly ?? monthly) : 0,
+    dailyPrice: daily,
+    shortStayDuration: v.shortStayDuration,
+    longStayDuration: v.longStayDuration,
+    deposit: Number(v.deposit) || 0,
+  };
+};
+
+/** Stay type, and the prices that stay type needs — shared by Add and Edit. */
+const StayPricingFields: React.FC<{
+  values: PricingValues;
+  bind: (key: PricingKey) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
+}> = ({ values, bind }) => {
+  const short = offersShortStay(values.stayType);
+  const long = offersLongStay(values.stayType);
+  return (
+    <>
+      <Field label="Stay type" hint="Decides which prices are asked for below.">
+        <Select value={values.stayType} onChange={bind('stayType')}>
+          {STAY_TYPES.map((s) => (
+            <Option key={s} value={s}>
+              {s}
+            </Option>
+          ))}
+        </Select>
+      </Field>
+
+      {short && (
+        <Box className="grid grid-cols-2 gap-3">
+          <Field label="Daily price (₹)" required hint="What one day costs; shown as /day in the app.">
+            <Input required type="number" min="1" value={values.dailyPrice} onChange={bind('dailyPrice')} className="tabular" />
+          </Field>
+          <Field label="Short stay length" hint="The longest short stay the app offers.">
+            <Select value={values.shortStayDuration} onChange={bind('shortStayDuration')}>
+              {[...new Set([values.shortStayDuration, ...SHORT_STAY_DURATIONS])].filter(Boolean).map((d) => (
+                <Option key={d} value={d}>
+                  {d}
+                </Option>
+              ))}
+            </Select>
+          </Field>
+        </Box>
+      )}
+
+      {long && (
+        <Box className="grid grid-cols-2 gap-3">
+          <Field label="Monthly rent (₹)" required>
+            <Input required type="number" min="1" value={values.rent} onChange={bind('rent')} className="tabular" />
+          </Field>
+          <Field label="Minimum long stay" hint="The fewest months the app offers.">
+            <Select value={values.longStayDuration} onChange={bind('longStayDuration')}>
+              {[...new Set([values.longStayDuration, ...LONG_STAY_DURATIONS])].filter(Boolean).map((d) => (
+                <Option key={d} value={d}>
+                  {d}
+                </Option>
+              ))}
+            </Select>
+          </Field>
+        </Box>
+      )}
+
+      <Field label="Deposit (₹)" hint={short && !long ? 'Not charged on short stays.' : undefined}>
+        <Input type="number" min="0" value={values.deposit} onChange={bind('deposit')} className="tabular" />
+      </Field>
+    </>
+  );
 };
 
 
@@ -315,6 +435,9 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
   /* True while a PhotoManager is uploading; both forms wait for it rather
      than saving a listing without the photos somebody just added. */
   const [photosBusy, setPhotosBusy] = useState(false);
+  /* A hotel's PAN and proof of premises; the server refuses a hotel without both. */
+  const [createDocs, setCreateDocs] = useState<PropertyDocument[]>([]);
+  const [docsBusy, setDocsBusy] = useState(false);
 
   const [editing, setEditing] = useState<PropertyEntity | null>(null);
   const [editForm, setEditForm] = useState<typeof EMPTY_FORM & { description: string } | null>(null);
@@ -406,10 +529,21 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (photosBusy) return;
-    setSaving(true);
+    if (photosBusy || docsBusy) return;
     setFormError(null);
 
+    const problem = pricingProblem(form);
+    if (problem) {
+      setFormError(problem);
+      return;
+    }
+    const isHotel = form.category === 'HOTEL';
+    if (isHotel && !(createDocs.some((d) => d.kind === 'pan') && createDocs.some((d) => d.kind === 'premises'))) {
+      setFormError('A hotel needs the owner or business PAN and one proof of premises.');
+      return;
+    }
+
+    setSaving(true);
     const res = await propertyService.createProperty({
       name: form.name.trim(),
       place: form.place.trim(),
@@ -417,11 +551,10 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
       category: form.category,
       ownerName: form.ownerName.trim(),
       ownerMobile: form.ownerMobile.trim(),
-      rent: Number(form.rent) || 0,
-      deposit: Number(form.deposit) || 0,
-      stayType: form.stayType,
+      ...pricingPayload(form),
       /* Left out when empty, so the route's own default still applies. */
       ...(createImages.length ? { images: createImages, imageUrl: createImages[0] } : {}),
+      ...(isHotel ? { documents: createDocs } : {}),
     });
 
     setSaving(false);
@@ -430,6 +563,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
       setCreateOpen(false);
       setForm(EMPTY_FORM);
       setCreateImages([]);
+      setCreateDocs([]);
       setToast({ tone: 'good', message: `“${res.data?.name}” added to the properties collection.` });
       reload();
     } else {
@@ -502,9 +636,12 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
       category: p.category,
       ownerName: p.ownerName,
       ownerMobile: p.ownerMobile,
-      rent: String(p.rent),
+      rent: offersLongStay(p.stayType) ? String(p.monthlyPrice || p.rent || '') : '',
       deposit: String(p.deposit),
-      stayType: p.stayType,
+      stayType: STAY_TYPES.includes(p.stayType) ? p.stayType : 'Long Stay',
+      dailyPrice: p.dailyPrice ? String(p.dailyPrice) : '',
+      shortStayDuration: p.shortStayDuration || SHORT_STAY_DURATIONS[0],
+      longStayDuration: p.longStayDuration || LONG_STAY_DURATIONS[0],
       description: p.description,
     });
     setEditDetailRows(objectToRows(p.categoryDetails));
@@ -518,7 +655,17 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editing || !editForm || photosBusy) return;
+    const problem = pricingProblem(editForm);
+    if (problem) {
+      setToast({ tone: 'crit', message: problem });
+      return;
+    }
     setSaving(true);
+
+    /* The monthly price is only rewritten when the rent field was touched,
+       so saving a description does not reprice a listing. */
+    const originalRent = offersLongStay(editing.stayType) ? String(editing.monthlyPrice || editing.rent || '') : '';
+    const keepMonthly = editForm.rent === originalRent && editing.monthlyPrice > 0 ? editing.monthlyPrice : undefined;
 
     /* Photos are sent only when they changed, so an edit to the rent never
        rewrites a listing's photo list (or drops its stand-in image). The
@@ -531,11 +678,9 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
       place: editForm.place.trim(),
       address: editForm.address.trim(),
       category: editForm.category,
-      stayType: editForm.stayType,
       ownerName: editForm.ownerName.trim(),
       ownerMobile: editForm.ownerMobile.trim(),
-      rent: Number(editForm.rent) || 0,
-      deposit: Number(editForm.deposit) || 0,
+      ...pricingPayload(editForm, keepMonthly),
       description: editForm.description.trim(),
       categoryDetails: rowsToObject(editDetailRows),
       ...(photosChanged ? { images: editImages, imageUrl: editImages[0] || '' } : {}),
@@ -1121,7 +1266,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
             <Button variant="ghost" onClick={() => setCreateOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" form="create-property" type="submit" loading={saving} disabled={photosBusy}>
+            <Button variant="primary" form="create-property" type="submit" loading={saving} disabled={photosBusy || docsBusy}>
               Create property
             </Button>
           </>
@@ -1138,26 +1283,15 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
             <Input required value={form.name} onChange={setField('name')} placeholder="Sunrise Residency" />
           </Field>
 
-          <Box className="grid grid-cols-2 gap-3">
-            <Field label="Category" required>
-              <Select value={form.category} onChange={setField('category')}>
-                {PROPERTY_CATEGORIES.map((c) => (
-                  <Option key={c} value={c}>
-                    {propertyCategoryLabel(c)}
-                  </Option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Stay type">
-              <Select value={form.stayType} onChange={setField('stayType')}>
-                {STAY_TYPES.map((s) => (
-                  <Option key={s} value={s}>
-                    {s}
-                  </Option>
-                ))}
-              </Select>
-            </Field>
-          </Box>
+          <Field label="Category" required>
+            <Select value={form.category} onChange={setField('category')}>
+              {PROPERTY_CATEGORIES.map((c) => (
+                <Option key={c} value={c}>
+                  {propertyCategoryLabel(c)}
+                </Option>
+              ))}
+            </Select>
+          </Field>
 
           <Field label="Place" required hint="Locality and city, as recorded by the field agent.">
             <Input
@@ -1187,27 +1321,17 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
             </Field>
           </Box>
 
-          <Box className="grid grid-cols-2 gap-3">
-            <Field label="Monthly rent (₹)" required>
-              <Input
-                required
-                type="number"
-                min="0"
-                value={form.rent}
-                onChange={setField('rent')}
-                className="tabular"
-              />
+          <StayPricingFields values={form} bind={setField} />
+
+          {form.category === 'HOTEL' && (
+            <Field
+              label="Hotel documents"
+              required
+              hint="Kept with the listing for verification. Never shown to guests."
+            >
+              <HotelDocuments documents={createDocs} onChange={setCreateDocs} onBusyChange={setDocsBusy} />
             </Field>
-            <Field label="Deposit (₹)">
-              <Input
-                type="number"
-                min="0"
-                value={form.deposit}
-                onChange={setField('deposit')}
-                className="tabular"
-              />
-            </Field>
-          </Box>
+          )}
 
           <Field label="Photos" hint="Uploaded as you add them; attached to the listing when you create it.">
             <PhotoManager images={createImages} onChange={setCreateImages} onBusyChange={setPhotosBusy} />
@@ -1249,26 +1373,15 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
               <PhotoManager images={editImages} onChange={setEditImages} onBusyChange={setPhotosBusy} />
             </Field>
 
-            <Box className="grid grid-cols-2 gap-3">
-              <Field label="Category" required>
-                <Select value={editForm.category} onChange={setEditField('category')}>
-                  {PROPERTY_CATEGORIES.map((c) => (
-                    <Option key={c} value={c}>
-                      {propertyCategoryLabel(c)}
-                    </Option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Stay type">
-                <Select value={editForm.stayType} onChange={setEditField('stayType')}>
-                  {STAY_TYPES.map((s) => (
-                    <Option key={s} value={s}>
-                      {s}
-                    </Option>
-                  ))}
-                </Select>
-              </Field>
-            </Box>
+            <Field label="Category" required>
+              <Select value={editForm.category} onChange={setEditField('category')}>
+                {PROPERTY_CATEGORIES.map((c) => (
+                  <Option key={c} value={c}>
+                    {propertyCategoryLabel(c)}
+                  </Option>
+                ))}
+              </Select>
+            </Field>
 
             <Field label="Place" required>
               <Input required value={editForm.place} onChange={setEditField('place')} />
@@ -1287,14 +1400,7 @@ export const PropertiesPage: React.FC<PropertiesPageProps> = ({ search }) => {
               </Field>
             </Box>
 
-            <Box className="grid grid-cols-2 gap-3">
-              <Field label="Monthly rent (₹)" required>
-                <Input required type="number" min="0" value={editForm.rent} onChange={setEditField('rent')} className="tabular" />
-              </Field>
-              <Field label="Deposit (₹)">
-                <Input type="number" min="0" value={editForm.deposit} onChange={setEditField('deposit')} className="tabular" />
-              </Field>
-            </Box>
+            <StayPricingFields values={editForm} bind={setEditField} />
 
             <Field label="Description" hint="Free text shown to whoever reads this listing's full detail.">
               <PlainTextarea

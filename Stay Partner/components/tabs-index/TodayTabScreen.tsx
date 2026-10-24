@@ -39,6 +39,8 @@ import { EarningsMiniCard } from '@/components/tabs-index/organisms/EarningsMini
 import { ManageRoomsBanner } from '@/components/tabs-index/organisms/ManageRoomsBanner/ManageRoomsBanner';
 import { QuickActionsGrid } from '@/components/tabs-index/organisms/QuickActionsGrid/QuickActionsGrid';
 import { ReferEarnBanner } from '@/components/tabs-index/organisms/ReferEarnBanner/ReferEarnBanner';
+import { RentSection } from '@/components/tabs-index/organisms/RentSection/RentSection';
+import { useRentOverview } from '@/services/hooks/useRent';
 import { styles } from '@/components/tabs-index/styles';
 
 type DashboardState = 'loading' | 'ready' | 'empty' | 'error';
@@ -275,14 +277,18 @@ export function TodayTabScreen() {
     }
   }, [forced]);
 
+  /* Same query as `RentSection`, deduped — held here only so a pull refreshes
+     the rent numbers along with everything else. */
+  const { refetch: refetchRent } = useRentOverview();
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([loadData({ silent: true }), refetchRequests(), refetchOngoing()]);
+      await Promise.all([loadData({ silent: true }), refetchRequests(), refetchOngoing(), refetchRent()]);
     } finally {
       setRefreshing(false);
     }
-  }, [loadData, refetchRequests, refetchOngoing]);
+  }, [loadData, refetchRequests, refetchOngoing, refetchRent]);
 
   /*
    * Refetched every time this tab comes back into focus, not just on mount —
@@ -420,6 +426,8 @@ export function TodayTabScreen() {
               onPress={() => router.push('/earnings' as never)}
             />
           </Box>
+
+          <RentSection />
 
           <ManageRoomsBanner onPress={() => router.push('/share-types')} />
 

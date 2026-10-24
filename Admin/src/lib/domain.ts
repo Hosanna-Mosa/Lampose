@@ -154,6 +154,35 @@ export const propertyCategoryLabel = (code: string): string =>
   PROPERTY_CATEGORY_LABEL[code] ?? code;
 export const STAY_TYPES = ['Short Stay', 'Long Stay', 'Both Short & Long Stay'];
 
+/* Which prices a stay type needs — the same reading the backend's
+   `stayRatesFor` makes of the label. A short stay is only bookable in the app
+   with a daily price; a long stay only with a monthly one. */
+export const offersShortStay = (stayType: string): boolean => {
+  const t = stayType.toLowerCase();
+  return t.includes('short') || t.includes('both');
+};
+export const offersLongStay = (stayType: string): boolean => {
+  const t = stayType.toLowerCase();
+  return t.includes('long') || t.includes('both');
+};
+
+/* The app reads the range's upper bound as the longest stay it offers, capped
+   at 7 days (`shortDayOptions`). */
+export const SHORT_STAY_DURATIONS = ['1-7 Days', '1-5 Days', '1-3 Days'];
+/* The leading number is read as the minimum months (`longMonthOptions`). */
+export const LONG_STAY_DURATIONS = ['1 Month+', '3 Months+', '6 Months+', '11 Months+'];
+
+/* What can prove a hotel holds its premises — the Onboard app's list. */
+export const PREMISES_DOC_TYPES = [
+  'Trade / Shop & Establishment Licence',
+  'GST Registration Certificate',
+  'Property Tax Receipt',
+  'Electricity Bill (in the business name)',
+  'Registered Lease or Rent Agreement',
+  'Fire Safety NOC',
+  'Municipal / Panchayat Permission',
+];
+
 /** Categorical slots in the fixed validated order — assigned, never cycled. */
 const SERIES_HUES = [
   'var(--chart-series)',

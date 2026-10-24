@@ -74,7 +74,9 @@ export type PushPayload = {
        These carry `reference`, not `requestId`, and were dropped by the
        listeners below, which only passed a payload with a request id. */
     | 'support.reply'
-    | 'support.status';
+    | 'support.status'
+    /* The owner's morning rent alert — carries neither id; opens Rent due. */
+    | 'rent.digest';
   requestId?: string;
   /** Support only — the ticket's reference. */
   reference?: string;
@@ -240,18 +242,22 @@ export async function getPushToken(): Promise<string | null> {
  * Returns a teardown. Call it on unmount, or a hot reload leaves listeners
  * stacked and each notification fires four times.
  */
+/** A payload a tap can go somewhere with. */
+const isRoutable = (payload: PushPayload | undefined): payload is PushPayload =>
+  Boolean(payload?.requestId || payload?.reference || payload?.kind === 'rent.digest');
+
 export function addPushListeners(handlers: {
   onReceived?: (payload: PushPayload) => void;
   onTapped?: (payload: PushPayload) => void;
 }): () => void {
   const received = Notifications.addNotificationReceivedListener((notification) => {
     const payload = notification.request.content.data as PushPayload | undefined;
-    if (payload?.requestId || payload?.reference) handlers.onReceived?.(payload);
+    if (isRoutable(payload)) handlers.onReceived?.(payload);
   });
 
   const tapped = Notifications.addNotificationResponseReceivedListener((response) => {
     const payload = response.notification.request.content.data as PushPayload | undefined;
-    if (payload?.requestId || payload?.reference) handlers.onTapped?.(payload);
+    if (isRoutable(payload)) handlers.onTapped?.(payload);
   });
 
   return () => {
@@ -276,7 +282,7 @@ export async function getInitialPush(): Promise<PushPayload | null> {
        the same old screen — a request answered days ago, on every launch. */
     Notifications.clearLastNotificationResponseAsync().catch(() => {});
     const payload = response?.notification.request.content.data as PushPayload | undefined;
-    return payload?.requestId || payload?.reference ? payload : null;
+    return isRoutable(payload) ? payload : null;
   } catch {
     return null;
   }

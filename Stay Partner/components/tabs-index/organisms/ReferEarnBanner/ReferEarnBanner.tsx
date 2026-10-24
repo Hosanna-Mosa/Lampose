@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { Icon } from '@/components/common/atoms/Icon';
+import { flatCard } from '@/components/tabs-index/flat';
 
 type Props = {
   onPress?: () => void;
@@ -9,7 +10,7 @@ type Props = {
 
 export function ReferEarnBanner({ onPress }: Props) {
   return (
-    <View style={styles.bannerContainer}>
+    <View style={[styles.bannerContainer, flatCard]}>
       {/* 3D Gift Box Graphic */}
       <View style={styles.giftGraphicWrap}>
         <Svg width={46} height={46} viewBox="0 0 46 46" fill="none">

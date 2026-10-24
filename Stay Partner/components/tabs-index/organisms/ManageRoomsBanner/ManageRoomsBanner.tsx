@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '@/components/common/atoms/Icon';
+import { flatCard } from '@/components/tabs-index/flat';
 
 type Props = {
   onPress?: () => void;
@@ -8,7 +9,7 @@ type Props = {
 
 export function ManageRoomsBanner({ onPress }: Props) {
   return (
-    <View style={styles.bannerContainer}>
+    <View style={[styles.bannerContainer, flatCard]}>
       <View style={styles.iconDisc}>
         <Icon name="arrow-up" size={18} color="#059669" />
       </View>

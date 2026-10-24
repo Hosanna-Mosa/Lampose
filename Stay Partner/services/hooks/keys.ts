@@ -32,6 +32,20 @@ export const queryKeys = {
   earnings: ['partner', 'earnings'] as const,
   payouts: ['partner', 'payouts'] as const,
 
+  /* Rent. One root, so recording a payment can refresh every rent screen
+     — the tiles, the due list and the resident — with one invalidation. */
+  rent: ['partner', 'rent'] as const,
+  rentOverview: ['partner', 'rent', 'overview'] as const,
+  rentResidents: ['partner', 'rent', 'residents'] as const,
+  rentResident: (id: string) => ['partner', 'rent', 'residents', id] as const,
+  rentDues: ['partner', 'rent', 'dues'] as const,
+  rentUpcoming: (days: number) => ['partner', 'rent', 'upcoming', days] as const,
+  rentPayments: (month: string | null, bookingId: string | null) =>
+    ['partner', 'rent', 'payments', month, bookingId] as const,
+  rentReceipt: (id: string) => ['partner', 'rent', 'receipt', id] as const,
+  rentVacancy: ['partner', 'rent', 'vacancy'] as const,
+  rentReminders: ['partner', 'rent', 'reminders'] as const,
+
   listings: ['listings'] as const,
   listingList: (filters: {
     category?: string | null;

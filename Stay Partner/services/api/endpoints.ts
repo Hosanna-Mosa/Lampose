@@ -238,6 +238,22 @@ export const endpoints = {
   partnerShareTypeAvailability: (shareTypeId: string) =>
     `${V2}/partners/share-types/${encodeURIComponent(shareTypeId)}/availability`,
 
+  /* Rent — residents, dues, payments, reminders, vacancy. See rent.api.ts. */
+  rentOverview: `${V2}/partners/rent/overview`,
+  rentResidents: `${V2}/partners/rent/residents`,
+  rentResident: (id: string) => `${V2}/partners/rent/residents/${encodeURIComponent(id)}`,
+  rentResidentTerms: (id: string) => `${V2}/partners/rent/residents/${encodeURIComponent(id)}/terms`,
+  rentResidentPayments: (id: string) => `${V2}/partners/rent/residents/${encodeURIComponent(id)}/payments`,
+  rentResidentReminders: (id: string) => `${V2}/partners/rent/residents/${encodeURIComponent(id)}/reminders`,
+  rentDues: `${V2}/partners/rent/dues`,
+  rentUpcoming: `${V2}/partners/rent/upcoming`,
+  rentPayments: `${V2}/partners/rent/payments`,
+  rentPayment: (id: string) => `${V2}/partners/rent/payments/${encodeURIComponent(id)}`,
+  rentPaymentVoid: (id: string) => `${V2}/partners/rent/payments/${encodeURIComponent(id)}/void`,
+  rentVacancy: `${V2}/partners/rent/vacancy`,
+  rentReminders: `${V2}/partners/rent/reminders`,
+  rentSettings: `${V2}/partners/rent/settings`,
+
   /* ---------------------------------------------------------------- *
    * Public catalogue
    * ---------------------------------------------------------------- */

@@ -42,6 +42,10 @@ export function usePushRouting() {
         router.push({ pathname: '/support/ticket', params: { id: payload.reference } } as never);
         return;
       }
+      if (payload.kind === 'rent.digest') {
+        router.push('/rent/due' as never);
+        return;
+      }
       if (!payload.requestId) return;
       router.push({
         pathname: '/requests/[id]',
@@ -56,6 +60,7 @@ export function usePushRouting() {
          status, never the notification payload. */
       queryClient.invalidateQueries({ queryKey: ['partner', 'requests'] });
       queryClient.invalidateQueries({ queryKey: ['partner', 'summary'] });
+      if (payload.kind === 'rent.digest') queryClient.invalidateQueries({ queryKey: ['partner', 'rent'] });
     };
 
     const detach = addPushListeners({ onReceived: refresh, onTapped: open });
