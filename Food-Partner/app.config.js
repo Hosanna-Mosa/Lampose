@@ -17,13 +17,15 @@ const BRAND = {
   ink: '#101214',
   accent: '#22A355',
   background: '#F1F2F4',
+  /* The logo's own charcoal — the adaptive icon's plate, so the artwork has no seam. */
+  logo: '#242321',
 };
 
 export default {
   expo: {
     name: 'Lampose Partner',
     slug: 'lampose-food-partner',
-    version: '1.0.3',
+    version: '1.0.4',
     orientation: 'portrait',
     icon: './assets/images/icon.png',
     scheme: 'lamposepartner',
@@ -44,11 +46,11 @@ export default {
          tracked, so the Gradle file is what builds, but `expo prebuild`
          regenerates it from HERE and a stale value would be a version Play
          has already taken. */
-      versionCode: 6,
+      versionCode: 7,
       ...(googleServicesFile ? { googleServicesFile } : {}),
       adaptiveIcon: {
         foregroundImage: './assets/images/adaptive-icon.png',
-        backgroundColor: BRAND.background,
+        backgroundColor: BRAND.logo,
       },
       permissions: [
         'ACCESS_COARSE_LOCATION',
@@ -102,7 +104,7 @@ export default {
         'expo-notifications',
         {
           icon: './assets/images/notification-icon.png',
-          color: BRAND.accent,
+          color: '#C8693F',
           defaultChannel: 'food-orders',
         },
       ],

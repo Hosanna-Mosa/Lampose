@@ -66,7 +66,7 @@ export default {
   expo: {
     name: 'Lampose',
     slug: 'lampose',
-    version: '1.0.9',
+    version: '1.0.10',
     orientation: 'portrait',
     icon: './assets/images/app-icon.png',
     scheme: 'lampose',
@@ -117,7 +117,7 @@ export default {
          own server the source of truth and ignores the number below. Set that
          to "local" (and drop `autoIncrement`) for this value to be the one
          that ships. */
-      versionCode: 11,
+      versionCode: 12,
       ...(googleServicesFile ? { googleServicesFile } : {}),
       adaptiveIcon: {
         foregroundImage: adaptiveIcon || './assets/images/app-icon.png',
