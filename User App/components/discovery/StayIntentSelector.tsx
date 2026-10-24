@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { LayoutAnimation, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { BottomSheet, Button, Icon, Text } from '@/components/ui';
 // Crossing from discovery into booking, deliberately: there is one calendar in
@@ -306,67 +306,25 @@ type DropdownProps = {
   placeholder: string;
   options: readonly Option[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
   /** The length dropdown is dead until a stay type is chosen. */
   disabled?: boolean;
-  /** The sheet's own title, which is the question being answered. */
-  sheetTitle?: string;
-  isOpen?: boolean;
-  onToggle?: () => void;
+  open: boolean;
+  onPress: () => void;
 };
 
 /**
- * A field that opens the app's own `BottomSheet` to choose from.
+ * The closed field. Its options open IN PLACE, as an `OptionPanel` in the
+ * page's own flow — not in a modal sheet.
  *
- * This used to expand a options card directly beneath the field, in the
- * layout flow. That guaranteed alignment, but the cost was everything BELOW
- * it: opening "How many months" pushed Sharing and Joining date down the
- * screen, and closing it snapped them back — the fields moved under a
- * student who was still reading them, on every open and close.
- *
- * A `BottomSheet` is a native modal, painted in its own layer above the
- * screen rather than a sibling within it, so nothing below this field
- * shifts when it opens — the same reason `JoinDateField` below already
- * reaches for one instead of an inline calendar.
+ * The panel is deliberately not an overlay laid over its neighbours: an
+ * absolutely-positioned list sits outside its parent's bounds, and on Android
+ * a tap there goes to whatever the layout says is underneath, so options near
+ * the bottom would not press. In the flow, every row is inside its parent and
+ * every row is tappable. The fields below move down when it opens; `toggle`
+ * eases that with a layout animation so it reads as an expansion.
  */
-function Dropdown({
-  label,
-  placeholder,
-  options,
-  selectedId,
-  onSelect,
-  disabled = false,
-  sheetTitle,
-  isOpen: controlledOpen,
-  onToggle,
-}: DropdownProps) {
+function Dropdown({ label, placeholder, options, selectedId, disabled = false, open, onPress }: DropdownProps) {
   const { colors, space, radius, touch } = useTheme();
-  const [internalOpen, setInternalOpen] = useState(false);
-
-  const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
-  /* Closing only ever closes. `onToggle` FLIPS the state, so a close arriving
-     when the sheet is already shut — a backdrop tap racing the option tap that
-     closed it — used to open it again. */
-  const close = () => {
-    if (!open) return;
-    if (onToggle) {
-      onToggle();
-    } else {
-      setInternalOpen(false);
-    }
-  };
-  /* The field only ever OPENS. It used to flip, so a second tap that landed
-     before the sheet had painted — the one people add when the first seems
-     not to have worked — shut the sheet the first had just opened. */
-  const toggleOpen = () => {
-    if (disabled || open) return;
-    if (onToggle) {
-      onToggle();
-    } else {
-      setInternalOpen(!internalOpen);
-    }
-  };
-
   const selected = options.find((option) => option.id === selectedId) ?? null;
 
   return (
@@ -376,8 +334,9 @@ function Dropdown({
           {label}
         </Text>
         <Pressable
-          onPress={toggleOpen}
+          onPress={onPress}
           disabled={disabled}
+          hitSlop={4}
           accessibilityRole="button"
           accessibilityState={{ disabled, expanded: open }}
           accessibilityLabel={
@@ -393,7 +352,7 @@ function Dropdown({
               paddingHorizontal: space[3],
               gap: space[2],
               opacity: disabled ? 0.45 : pressed ? 0.7 : 1,
-              backgroundColor: colors.surface,
+              backgroundColor: open ? colors.link.tint : colors.surface,
               /* Blue while it is open — on listing detail blue marks what the
                  student is choosing, green their action. An answered field
                  says so with its value in full-strength text. */
@@ -413,74 +372,96 @@ function Dropdown({
             ) : null}
           </View>
           <View style={open ? styles.chevronUp : styles.chevronDown}>
-            <Icon name="chevronRight" size={20} color={colors.textTertiary} />
+            <Icon name="chevronRight" size={20} color={open ? colors.link.base : colors.textTertiary} />
           </View>
         </Pressable>
       </View>
-
-      <BottomSheet visible={open} onClose={close} title={sheetTitle ?? label}>
-        <ScrollView
-          bounces={false}
-          nestedScrollEnabled
-          style={styles.sheetOptionList}
-          contentContainerStyle={{ paddingVertical: space[1], paddingBottom: space[4] }}
-          accessibilityRole="radiogroup"
-        >
-          {options.map((option) => {
-            const active = option.id === selectedId;
-            return (
-              <Pressable
-                key={option.id}
-                onPress={() => {
-                  if (option.disabled) return;
-                  onSelect(option.id);
-                  close();
-                }}
-                disabled={option.disabled}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: active, disabled: option.disabled }}
-                accessibilityLabel={[option.label, option.price, option.meta]
-                  .filter(Boolean)
-                  .join(', ')}
-                style={({ pressed }) => [
-                  styles.optionRow,
-                  {
-                    minHeight: touch.min,
-                    borderRadius: radius.button,
-                    paddingHorizontal: space[3],
-                    paddingVertical: space[2],
-                    gap: space[2],
-                    opacity: option.disabled ? 0.7 : 1,
-                    /* The tick marks the chosen row; the row itself stays
-                       neutral rather than turning green as well. */
-                    backgroundColor: active || pressed ? colors.surfaceSunken : 'transparent',
-                  },
-                ]}
-              >
-                <View style={styles.flex}>
-                  <Text variant="bodyStrong" color="primary" numberOfLines={1}>
-                    {option.label}
-                  </Text>
-                  {(option.unavailable ? option.price : option.price || option.meta) ? (
-                    <Text variant="numMeta" color="secondary" numberOfLines={1}>
-                      {option.unavailable
-                        ? option.price
-                        : [option.price, option.meta].filter(Boolean).join(' · ')}
-                    </Text>
-                  ) : null}
-                  {option.unavailable && option.meta ? (
-                    <Text variant="numMeta" style={{ color: colors.warning.ink }} numberOfLines={1}>
-                      {option.meta}
-                    </Text>
-                  ) : null}
-                </View>
-                {active ? <Icon name="check" size={16} color={colors.link.base} /> : null}
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </BottomSheet>
     </View>
+  );
+}
+
+type OptionPanelProps = {
+  options: readonly Option[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+};
+
+/**
+ * The options, open under their field and the full width of the card.
+ *
+ * Full width even for the left-hand field of a pair: a half-width list would
+ * truncate "Bed in 12-bed hall" and its price. Past six rows the list scrolls
+ * inside the panel, so twelve months do not push the page down by a screen.
+ */
+function OptionPanel({ options, selectedId, onSelect }: OptionPanelProps) {
+  const { colors, space, radius, touch } = useTheme();
+
+  const Body = options.length > 6 ? ScrollView : View;
+
+  return (
+    <Body
+      accessibilityRole="radiogroup"
+      {...(options.length > 6 ? { nestedScrollEnabled: true } : null)}
+      style={[
+        options.length > 6 ? styles.panelScroll : null,
+        {
+          padding: space[2],
+          gap: space[1],
+          borderRadius: radius.button,
+          backgroundColor: colors.surface,
+          borderColor: colors.link.border,
+          borderWidth: StyleSheet.hairlineWidth,
+        },
+      ]}
+    >
+      {options.map((option) => {
+        const active = option.id === selectedId;
+        return (
+          <Pressable
+            key={option.id}
+            onPress={() => {
+              if (option.disabled) return;
+              onSelect(option.id);
+            }}
+            disabled={option.disabled}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: active, disabled: option.disabled }}
+            accessibilityLabel={[option.label, option.price, option.meta].filter(Boolean).join(', ')}
+            style={({ pressed }) => [
+              styles.optionRow,
+              {
+                minHeight: touch.min,
+                borderRadius: radius.button,
+                paddingHorizontal: space[3],
+                paddingVertical: space[2],
+                gap: space[2],
+                opacity: option.disabled ? 0.7 : 1,
+                backgroundColor: active ? colors.link.tint : pressed ? colors.surfaceSunken : 'transparent',
+                borderWidth: active ? 1 : 0,
+                borderColor: active ? colors.link.base : colors.borderInput,
+              },
+            ]}
+          >
+            <View style={styles.flex}>
+              <Text variant="bodyStrong" color="primary" numberOfLines={1}>
+                {option.label}
+              </Text>
+              {(option.unavailable ? option.price : option.price || option.meta) ? (
+                <Text variant="numMeta" color="secondary" numberOfLines={1}>
+                  {option.unavailable ? option.price : [option.price, option.meta].filter(Boolean).join(' · ')}
+                </Text>
+              ) : null}
+              {option.unavailable && option.meta ? (
+                <Text variant="numMeta" style={{ color: colors.warning.ink }} numberOfLines={1}>
+                  {option.meta}
+                </Text>
+              ) : null}
+            </View>
+            {active ? <Icon name="check" size={16} color={colors.link.base} /> : null}
+          </Pressable>
+        );
+      })}
+    </Body>
   );
 }
 
@@ -645,6 +626,17 @@ export function StayIntentSelector({
   const { colors, space, radius, touch } = useTheme();
   const [openDropdown, setOpenDropdown] = useState<'stayType' | 'units' | 'sharing' | null>(null);
 
+  /* One panel open at a time; tapping its own field again closes it. The
+     layout animation eases the fields below as the panel opens and shuts. */
+  const closePanel = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setOpenDropdown(null);
+  };
+  const toggle = (id: 'stayType' | 'units' | 'sharing') => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setOpenDropdown((current) => (current === id ? null : id));
+  };
+
   /* Only tracks this listing actually quotes a rate for. A place with no daily
      rate does not get a "Short stay" option it cannot honour. */
   const tracks = useMemo(
@@ -783,12 +775,27 @@ export function StayIntentSelector({
       <View style={[styles.row, { gap: space[3], alignItems: 'flex-start' }]}>
         <Dropdown
           label="Stay type"
-          sheetTitle="How long are you staying?"
           placeholder="Select"
           options={typeOptions}
           selectedId={track}
-          isOpen={openDropdown === 'stayType'}
-          onToggle={() => setOpenDropdown(openDropdown === 'stayType' ? null : 'stayType')}
+          open={openDropdown === 'stayType'}
+          onPress={() => toggle('stayType')}
+        />
+        <Dropdown
+          label={track === 'SHORT' ? 'How many days' : track === 'LONG' ? 'How many months' : 'Duration'}
+          placeholder={track ? 'Select' : 'Pick stay type'}
+          options={lengthOptions}
+          selectedId={value.units === null ? null : String(value.units)}
+          open={openDropdown === 'units'}
+          onPress={() => toggle('units')}
+          disabled={!track}
+        />
+      </View>
+
+      {openDropdown === 'stayType' ? (
+        <OptionPanel
+          options={typeOptions}
+          selectedId={track}
           onSelect={(id) => {
             // Units belong to a rate — 3 days is not 3 months. Switching track
             // clears the length rather than carrying a number that now means
@@ -806,24 +813,21 @@ export function StayIntentSelector({
               units: null,
               sharingId: stillOffered ? value.sharingId : null,
             });
-            setOpenDropdown(null);
+            closePanel();
           }}
         />
-        <Dropdown
-          label={track === 'SHORT' ? 'How many days' : track === 'LONG' ? 'How many months' : 'Duration'}
-          sheetTitle={track === 'SHORT' ? 'How many days?' : 'How many months?'}
-          placeholder={track ? 'Select' : 'Pick stay type'}
+      ) : null}
+
+      {openDropdown === 'units' ? (
+        <OptionPanel
           options={lengthOptions}
           selectedId={value.units === null ? null : String(value.units)}
-          isOpen={openDropdown === 'units'}
-          onToggle={() => setOpenDropdown(openDropdown === 'units' ? null : 'units')}
           onSelect={(id) => {
             onChange({ ...value, units: Number(id) });
-            setOpenDropdown(null);
+            closePanel();
           }}
-          disabled={!track}
         />
-      </View>
+      ) : null}
 
       {/* Sharing. Full width rather than a third of a row: the labels run to
           "Bed in 12-bed hall" and each option carries both a price and a bed
@@ -832,20 +836,27 @@ export function StayIntentSelector({
           Dead until a stay type is chosen, for the same reason the length
           field is — the price on every row here depends on it. */}
       {sharingOptions?.length ? (
-        <Dropdown
-          label="Sharing"
-          sheetTitle="Which sharing?"
-          placeholder={track ? 'Select sharing type' : 'Pick stay type first'}
-          options={sharingChoiceOptions}
-          selectedId={value.sharingId}
-          isOpen={openDropdown === 'sharing'}
-          onToggle={() => setOpenDropdown(openDropdown === 'sharing' ? null : 'sharing')}
-          onSelect={(id) => {
-            onChange({ ...value, sharingId: id });
-            setOpenDropdown(null);
-          }}
-          disabled={!track}
-        />
+        <View style={{ gap: space[2] }}>
+          <Dropdown
+            label="Sharing"
+            placeholder={track ? 'Select sharing type' : 'Pick stay type first'}
+            options={sharingChoiceOptions}
+            selectedId={value.sharingId}
+            open={openDropdown === 'sharing'}
+            onPress={() => toggle('sharing')}
+            disabled={!track}
+          />
+          {openDropdown === 'sharing' ? (
+            <OptionPanel
+              options={sharingChoiceOptions}
+              selectedId={value.sharingId}
+              onSelect={(id) => {
+                onChange({ ...value, sharingId: id });
+                closePanel();
+              }}
+            />
+          ) : null}
+        </View>
       ) : null}
 
       {/* When. Last of the four questions, because it is the one that depends
@@ -931,9 +942,8 @@ const styles = StyleSheet.create({
   field: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   chevronDown: { transform: [{ rotate: '90deg' }] },
   chevronUp: { transform: [{ rotate: '-90deg' }] },
-  /* Caps the option list rather than letting the sheet itself grow unbounded
-     — "How many months" and the sharing list can both run past a screenful. */
-  sheetOptionList: { maxHeight: 360 },
+  /* A long list (twelve months) scrolls inside the panel instead of pushing the page down. */
+  panelScroll: { maxHeight: 264 },
   optionRow: { flexDirection: 'row', alignItems: 'center' },
   messRow: { flexDirection: 'row', alignItems: 'center' },
   /* The month name takes the middle and the two steppers hold their size, so
