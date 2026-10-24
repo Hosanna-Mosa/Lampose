@@ -6,13 +6,13 @@
      1. Choose a sheet (download the current menu or the empty template first).
      2. It is DRY-RUN: the server checks every row and writes nothing. Any bad
         row refuses the whole sheet, and every row's problems are listed.
-     3. Each NEW dish needs its photo — the server's rule, not this page's —
-        so one is chosen per new row before the sheet can be applied.
+     3. A photo per new dish is optional here; a dish without one is saved bare
+        and shown with the Lampose logo.
      4. Applied. Rows with a Product ID edit that dish; rows without one add
         a dish; a dish missing from the sheet is left alone.
    ══════════════════════════════════════════════════════════════════════════ */
 import React, { useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Download, FileSpreadsheet, ImageOff, Upload } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Download, FileSpreadsheet, Upload } from 'lucide-react';
 import { Badge } from '../../components/common/atoms/Badge';
 import { Box } from '../../components/common/atoms/Box';
 import { Button } from '../../components/common/atoms/Button';
@@ -47,6 +47,9 @@ type Step =
   | { kind: 'invalid'; message: string; rows: SheetRowProblem[] }
   | { kind: 'review'; fileName: string; rows: SheetRow[]; result: SheetResult }
   | { kind: 'partial'; failed: { row: number; message: string }[] };
+
+/** Shown for a dish with no photograph of its own. */
+export const FALLBACK_PHOTO = '/lampose-logo.png';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -192,7 +195,7 @@ export const MenuSheetModal: React.FC<MenuSheetModalProps> = ({
           variant="primary"
           icon={CheckCircle2}
           loading={busy !== null}
-          disabled={nothingToDo || missingPhotos > 0 || uploadingRow !== null}
+          disabled={nothingToDo || uploadingRow !== null}
           onClick={apply}
         >
           Apply to menu
@@ -284,7 +287,7 @@ export const MenuSheetModal: React.FC<MenuSheetModalProps> = ({
             <Box className="rounded-panel border border-line p-4 space-y-3">
               <Text className="text-sm font-medium text-ink">2. Upload it</Text>
               <Text className="text-label text-ink-3">
-                It is checked first and nothing is saved until you confirm. New dishes then each need a photo.
+                It is checked first and nothing is saved until you confirm. New dishes may each have a photo; without one the Lampose logo is shown.
               </Text>
               <Button
                 size="sm"
@@ -343,7 +346,7 @@ export const MenuSheetModal: React.FC<MenuSheetModalProps> = ({
               <Box className="space-y-2">
                 <Text className="text-sm text-ink-2">
                   {missingPhotos
-                    ? `Add a photo for each new dish (${plural(missingPhotos, 'photo')} still needed).`
+                    ? `Photos are optional — ${plural(missingPhotos, 'new dish', 'new dishes')} without one will show the Lampose logo.`
                     : 'Every new dish has its photo.'}
                 </Text>
                 <Box className="max-h-80 overflow-y-auto divide-y divide-line rounded-panel border border-line">
@@ -358,9 +361,11 @@ export const MenuSheetModal: React.FC<MenuSheetModalProps> = ({
                             className="size-10 rounded-control object-cover border border-line shrink-0"
                           />
                         ) : (
-                          <Inline className="grid place-items-center size-10 rounded-control bg-surface-inset text-ink-3 shrink-0">
-                            <ImageOff className="size-4" strokeWidth={1.75} />
-                          </Inline>
+                          <Image
+                            src={FALLBACK_PHOTO}
+                            alt=""
+                            className="size-10 rounded-control object-cover border border-line shrink-0"
+                          />
                         )}
                         <Box className="min-w-0 flex-1">
                           <Text className="text-sm font-medium text-ink truncate">{String(row.productName)}</Text>

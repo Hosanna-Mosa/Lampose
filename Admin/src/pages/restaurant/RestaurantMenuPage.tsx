@@ -92,7 +92,7 @@ import type {
   SpiceLevel,
   UploadedImage,
 } from '../../api/services/restaurantAdminService';
-import { MenuSheetModal } from './MenuSheetModal';
+import { FALLBACK_PHOTO, MenuSheetModal } from './MenuSheetModal';
 import { useFetch } from '../../lib/useFetch';
 import { PAGE_SIZES, filterMenu, hasActiveFilters, useMenuView } from '../../lib/menuFilter';
 import type { StockFilter } from '../../lib/menuFilter';
@@ -535,9 +535,11 @@ export const RestaurantMenuPage: React.FC<RestaurantMenuPageProps> = ({
                                 className="size-9 rounded-control object-cover shrink-0 border border-line"
                               />
                             ) : (
-                              <Inline className="grid place-items-center size-9 rounded-control bg-surface-inset text-ink-3 shrink-0">
-                                <ImageOff className="size-4" strokeWidth={1.75} />
-                              </Inline>
+                              <Image
+                                src={FALLBACK_PHOTO}
+                                alt=""
+                                className="size-9 rounded-control object-cover shrink-0 border border-line"
+                              />
                             )}
                             <Box className="min-w-0">
                               <Text className="text-sm font-medium text-ink truncate">
