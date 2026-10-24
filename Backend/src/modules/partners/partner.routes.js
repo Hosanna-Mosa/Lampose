@@ -382,4 +382,7 @@ router.patch('/share-types/availability', requireLamposeDb, requirePartner, upda
    `updateOneShareTypeAvailability` in partnerDomains.controller.js. */
 router.patch('/share-types/:shareTypeId/availability', requireLamposeDb, requirePartner, updateOneShareTypeAvailability);
 
+/* Rent: residents, dues, payments, reminders and vacancy — see modules/rent/. */
+router.use('/rent', require('../rent/rent.routes'));
+
 module.exports = router;

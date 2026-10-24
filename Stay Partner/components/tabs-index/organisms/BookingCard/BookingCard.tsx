@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '@/components/common/atoms/Icon';
+import { flatCard } from '@/components/tabs-index/flat';
 
 type Props = {
   arrivals: number;
@@ -13,22 +14,20 @@ export function BookingCard({ arrivals, departures, inHouse, onPress }: Props) {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.cardContainer, pressed && { opacity: 0.9 }]}
+      style={({ pressed }) => [styles.cardContainer, flatCard, pressed && { opacity: 0.9 }]}
       accessibilityRole="button"
       accessibilityLabel="Bookings"
     >
       <View style={styles.topRow}>
         <View style={styles.iconDisc}>
-          <Icon name="bed" size={18} color="#059669" />
+          <Icon name="bed" size={16} color="#059669" />
         </View>
-
-        <View style={styles.chevronDisc}>
-          <Icon name="chevron-right" size={16} color="#059669" />
+        <View style={styles.textCol}>
+          <Text numberOfLines={1} style={styles.cardTitle}>Bookings</Text>
+          <Text numberOfLines={1} style={styles.metricValue}>{inHouse}</Text>
         </View>
+        <Icon name="chevron-right" size={16} color="#059669" />
       </View>
-
-      <Text style={styles.cardTitle}>Bookings</Text>
-      <Text style={styles.metricValue}>{inHouse}</Text>
 
       <Text numberOfLines={1} style={styles.subtext}>
         {arrivals} check-ins · {departures} check-outs today
@@ -38,11 +37,14 @@ export function BookingCard({ arrivals, departures, inHouse, onPress }: Props) {
 }
 
 const styles = StyleSheet.create({
+  /* Compact and rectangular: icon, title and figure on one line, the detail
+     under it — about half the height of the old square card. */
   cardContainer: {
     flex: 1,
     backgroundColor: '#F0FDF4',
-    borderRadius: 20,
-    padding: 16,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: '#DCFCE7',
     shadowColor: '#000',
@@ -54,40 +56,34 @@ const styles = StyleSheet.create({
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
+    gap: 8,
   },
   iconDisc: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 30,
+    height: 30,
+    borderRadius: 8,
     backgroundColor: '#D1FAE5',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  chevronDisc: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#D1FAE5',
-    alignItems: 'center',
-    justifyContent: 'center',
+  textCol: {
+    flex: 1,
+    minWidth: 0,
   },
   cardTitle: {
-    fontSize: 15,
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#065F46',
-    marginTop: 2,
   },
   metricValue: {
-    fontSize: 28,
+    fontSize: 19,
+    lineHeight: 23,
     fontWeight: '800',
     color: '#064E3B',
-    marginVertical: 2,
   },
   subtext: {
-    fontSize: 11.5,
+    fontSize: 11,
     color: '#64748B',
-    marginTop: 2,
+    marginTop: 6,
   },
 });

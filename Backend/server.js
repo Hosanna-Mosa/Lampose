@@ -24,6 +24,7 @@ const { startSlotReminderWorker, stopSlotReminderWorker } = require('./src/modul
 const {
   startAccountDeletionWorker, stopAccountDeletionWorker,
 } = require('./src/modules/accountDeletion/accountDeletion.worker');
+const { startRentReminderWorker, stopRentReminderWorker } = require('./src/modules/rent/rent.worker');
 const {
   keepReviewAccountsUsable, stopReviewAccountKeeper,
 } = require('./src/modules/reviewAccounts/reviewAccounts.service');
@@ -316,6 +317,13 @@ const startServer = async () => {
   } else {
     console.log('🗑️  [Account Deletion] worker off — run scripts/process-account-deletions.js to carry out due requests');
   }
+  /* The owner's morning rent alert. Pushes to real owners, so production
+     only unless RENT_REMINDER_WORKER says otherwise — see the worker. */
+  if (startRentReminderWorker()) {
+    console.log('💸 [Rent] morning alert on — owners hear about due rent after 9am IST');
+  } else {
+    console.log('💸 [Rent] morning alert off (RENT_REMINDER_WORKER=on to enable)');
+  }
   /* The Google Play review accounts: created if missing and unlocked if
      anything locked them, at every connect and hourly. Each is off until its
      REVIEW_* settings exist, so a server without them does nothing here. */
@@ -453,6 +461,7 @@ const startServer = async () => {
     stopExpiryWorker();
     stopSlotReminderWorker();
     stopAccountDeletionWorker();
+    stopRentReminderWorker();
     stopReviewAccountKeeper();
     /* Same reason, and one more: a dispatch timer that fires mid-shutdown
        would offer an order to a rider this process can no longer hear the

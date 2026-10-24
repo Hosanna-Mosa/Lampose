@@ -69,6 +69,28 @@ const partnerBookingSchema = new mongoose.Schema(
     notes: { type: String, default: '' },
 
     /*
+     * Monthly rent terms, set by the owner from the Rent tab.
+     *
+     * Separate from `totalAmount`/`paidAmount` on purpose: those feed
+     * `payout.service.js`'s balance, and rent a PG owner collects in cash is
+     * not money Lampose ever holds. Payments against these terms live in
+     * `partner_rent_payments` — see `modules/rent/`.
+     *
+     * `schedule` is the amount over time, oldest first: a raise applies from
+     * the month it was made, so months already settled at the old rent do not
+     * turn into "partial" when the rent goes up. Empty until the owner sets a
+     * rent; until then the ledger reads one from the booking or the listing.
+     * `dueDay` null means "the day of the month they checked in".
+     */
+    rent: {
+      schedule: {
+        type: [{ _id: false, from: { type: String, required: true }, amount: { type: Number, required: true } }],
+        default: [],
+      },
+      dueDay: { type: Number, default: null, min: 1, max: 28 },
+    },
+
+    /*
      * ── Our commission, collected OFF the platform ────────────────────
      *
      * For PG/Hostel and Co-living only, and it is a NOTE rather than a

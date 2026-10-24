@@ -1,6 +1,8 @@
 import { api, unwrapList } from '../apiCaller';
 import type { ApiResponse, PropertyEntity } from '../types';
 
+export type PropertyDocument = NonNullable<PropertyEntity['documents']>[number];
+
 const toNumber = (value: unknown): number => {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
@@ -32,6 +34,9 @@ const normalize = (raw: any): PropertyEntity => {
     amenities: Array.isArray(raw.amenities) ? raw.amenities.filter(Boolean) : [],
     description: raw.description || '',
     categoryDetails: raw.categoryDetails && typeof raw.categoryDetails === 'object' ? raw.categoryDetails : {},
+    /* Read through so the drawer's "Verification documents" panel has
+       something to show — it was never mapped, so it never rendered. */
+    documents: Array.isArray(raw.documents) ? raw.documents.filter((d: any) => d && d.url) : [],
     isVerified: raw.isVerified === true,
     verificationStatus: raw.verificationStatus || (raw.isVerified ? 'verified' : 'pending'),
     requestStatus: raw.isVerified === true ? '' : raw.requestStatus || 'pending',
@@ -97,9 +102,16 @@ export const propertyService = {
     deposit?: number;
     address?: string;
     stayType?: string;
+    /** What a night/day costs. A short stay is only bookable when this is set. */
+    dailyPrice?: number;
+    monthlyPrice?: number;
+    shortStayDuration?: string;
+    longStayDuration?: string;
     /** Links from `uploadImages`; the first is the cover. */
     images?: string[];
     imageUrl?: string;
+    /** A hotel's PAN and proof of premises, from `uploadDocument`. */
+    documents?: PropertyDocument[];
   }): Promise<ApiResponse<PropertyEntity | null>> {
     const res = await api.post<any>('/properties', payload);
     return res.success ? { ...res, data: normalize(res.data?.data || res.data) } : { ...res, data: null };
@@ -133,6 +145,24 @@ export const propertyService = {
     if (!res.success) return { ...res, data: [] };
     const urls: unknown = res.data?.urls;
     return { ...res, data: Array.isArray(urls) ? urls.filter((u): u is string => typeof u === 'string' && !!u) : [] };
+  },
+
+  /**
+   * Upload one ownership or premises document and get its link back.
+   *
+   * Same route Onboard uses (`/properties/upload-image`). The file lands on
+   * Cloudinary public-read — unguessable, not private — so the link is only
+   * ever stored in `documents`, which no public listing projects.
+   */
+  async uploadDocument(file: File): Promise<ApiResponse<string | null>> {
+    const body = new FormData();
+    body.append('image', file);
+    const res = await api.post<any>('/properties/upload-image', body, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120_000,
+    });
+    const url = res.success && typeof res.data?.url === 'string' ? res.data.url : null;
+    return { ...res, success: res.success && !!url, data: url };
   },
 
   async deleteProperty(id: string): Promise<ApiResponse<{ success: boolean }>> {
