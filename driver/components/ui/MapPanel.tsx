@@ -535,6 +535,20 @@ export function MapPanel({
     onMapRef?.(mapRef.current);
   }, [onMapRef]);
 
+  /* A map whose tiles never arrive (a rejected key, no network) draws a bare
+     grid, and every control over it then looks like it does nothing. Say so
+     instead, after a fair wait. `onMapLoaded` only fires once tiles render. */
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapSlow, setMapSlow] = useState(false);
+  useEffect(() => {
+    if (mapLoaded) {
+      setMapSlow(false);
+      return;
+    }
+    const t = setTimeout(() => setMapSlow(true), 10000);
+    return () => clearTimeout(t);
+  }, [mapLoaded]);
+
   return (
     <View style={[styles.wrap, { height }]}>
       <MapView
@@ -554,6 +568,7 @@ export function MapPanel({
         rotateEnabled={false}
         pitchEnabled={false}
         toolbarEnabled={false}
+        onMapLoaded={() => setMapLoaded(true)}
       >
         {/* The whole journey, faint, along actual roads. It stays visible on
             both legs so progress reads against something fixed. Fixed
@@ -697,6 +712,14 @@ export function MapPanel({
         <View pointerEvents="none" style={styles.searchOverlay}>
           <PulseRing size={100} color={colors.brand} duration={1800} />
           <PulseRing size={100} color={colors.brand} delay={900} duration={1800} />
+        </View>
+      ) : null}
+
+      {mapSlow ? (
+        <View style={styles.caption} pointerEvents="none">
+          <Text variant="numMeta" color="tertiary">
+            Map is not loading — check your internet connection
+          </Text>
         </View>
       ) : null}
 
