@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, Easing, Linking, Pressable, ScrollView, StyleSheet, Text as RNText, View } from "react-native";
+import { Animated, Easing, Linking, Platform, Pressable, ScrollView, StyleSheet, Text as RNText, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type MapView from "react-native-maps";
 import {
@@ -332,6 +332,25 @@ export default function HomeScreen() {
     }
   };
 
+  /* With a job this opens it. Without one there is nothing to navigate to, so
+     it hands the rider's own position to their maps app — a visible response,
+     where it used to repeat "My Location" and look like a button that did
+     nothing. */
+  const handleNavigate = () => {
+    if (currentJob) {
+      router.push("/active");
+      return;
+    }
+    if (!location) {
+      handleRecenter();
+      return;
+    }
+    const here = `${location.lat},${location.lng}`;
+    const web = `https://www.google.com/maps/search/?api=1&query=${here}`;
+    (Platform.OS === "android" ? Linking.openURL(`geo:${here}?q=${here}`).catch(() => Linking.openURL(web)) : Linking.openURL(web))
+      .catch(() => say("No maps app could open this."));
+  };
+
   const toggleLayers = () => {
     const nextType = mapType === "standard" ? "satellite" : "standard";
     setMapType(nextType);
@@ -479,17 +498,22 @@ export default function HomeScreen() {
           />
 
           {/* Top-Left Location Selector Pill */}
-          <View style={styles.locationPill}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Your location: ${driverCity}. Tap to centre the map on you`}
+            onPress={handleRecenter}
+            style={({ pressed }) => [styles.locationPill, pressed && styles.pressedBtn]}
+          >
             <Icon name="mapPin" size={15} color={colors.textPrimary} />
             <RNText style={styles.locationPillText} numberOfLines={1}>
               {driverCity}
             </RNText>
-            <Icon name="chevronDown" size={14} color={colors.textSecondary} />
-          </View>
+          </Pressable>
 
           {/* Top-Right "My Location" Button */}
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel="Centre the map on my location"
             onPress={handleRecenter}
             style={({ pressed }) => [styles.myLocationBtn, pressed && styles.pressedBtn]}
           >
@@ -503,8 +527,14 @@ export default function HomeScreen() {
           <View style={styles.floatingStack}>
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel="Switch between map and satellite view"
+              accessibilityState={{ selected: mapType === "satellite" }}
               onPress={toggleLayers}
-              style={({ pressed }) => [styles.stackBtn, pressed && styles.pressedBtn]}
+              style={({ pressed }) => [
+                styles.stackBtn,
+                mapType === "satellite" && styles.stackBtnOn,
+                pressed && styles.pressedBtn,
+              ]}
             >
               <Icon name="layers" size={18} color={colors.textPrimary} />
               <RNText style={styles.stackLabel}>
@@ -514,7 +544,8 @@ export default function HomeScreen() {
 
             <Pressable
               accessibilityRole="button"
-              onPress={() => (currentJob ? router.push("/active") : handleRecenter())}
+              accessibilityLabel={currentJob ? "Open the active delivery" : "Open my location in maps"}
+              onPress={handleNavigate}
               style={({ pressed }) => [styles.stackBtn, pressed && styles.pressedBtn]}
             >
               <Icon name="navigate" size={18} color={colors.textPrimary} />
@@ -1014,6 +1045,10 @@ const styles = StyleSheet.create({
     borderColor: colors.borderSubtle,
     paddingHorizontal: 2,
     ...elevation.card,
+  },
+  stackBtnOn: {
+    backgroundColor: colors.brandTint,
+    borderColor: colors.brand,
   },
   stackLabel: {
     fontSize: 10,

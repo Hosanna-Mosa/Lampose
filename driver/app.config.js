@@ -42,7 +42,7 @@ export default {
   expo: {
     name: 'Lampose Driver',
     slug: 'driver',
-    version: '1.0.1',
+    version: '1.0.3',
     orientation: 'portrait',
     icon: './assets/images/icon.png',
     scheme: 'driver',
@@ -73,7 +73,7 @@ export default {
       package: 'com.lampose.driver.com',
       /* Kept in step with android/app/build.gradle by hand. Play rejects a
          versionCode it has already accepted. */
-      versionCode: 7,
+      versionCode: 10,
       ...(googleServicesFile ? { googleServicesFile } : {}),
       adaptiveIcon: {
         foregroundImage: './assets/images/adaptive-icon.png',
